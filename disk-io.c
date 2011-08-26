@@ -237,6 +237,7 @@ int write_tree_block(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 	if (!btrfs_buffer_uptodate(eb, trans->transid))
 		BUG();
 
+	printf("writing out a block\n");
 	btrfs_set_header_flag(eb, BTRFS_HEADER_FLAG_WRITTEN);
 	csum_tree_block(root, eb, 0);
 
@@ -364,6 +365,7 @@ static int __commit_transaction(struct btrfs_trans_handle *trans,
 int btrfs_commit_transaction(struct btrfs_trans_handle *trans,
 			     struct btrfs_root *root)
 {
+	u64 transid = trans->transid;
 	int ret = 0;
 	struct btrfs_fs_info *fs_info = root->fs_info;
 
@@ -391,6 +393,7 @@ commit_tree:
 	free_extent_buffer(root->commit_root);
 	root->commit_root = NULL;
 	fs_info->running_transaction = NULL;
+	fs_info->last_trans_committed = transid;
 	return 0;
 }
 
@@ -756,7 +759,8 @@ struct btrfs_root *open_ctree_fd(int fp, const char *path, u64 sb_bytenr,
 
 	find_and_setup_log_root(tree_root, fs_info, disk_super);
 
-	fs_info->generation = generation + 1;
+	fs_info->generation = generation;
+	fs_info->last_trans_committed = generation;
 	btrfs_read_block_groups(fs_info->tree_root);
 
 	key.objectid = BTRFS_FS_TREE_OBJECTID;
@@ -946,15 +950,18 @@ int close_ctree(struct btrfs_root *root)
 	struct btrfs_trans_handle *trans;
 	struct btrfs_fs_info *fs_info = root->fs_info;
 
-	trans = btrfs_start_transaction(root, 1);
-	btrfs_commit_transaction(trans, root);
-	trans = btrfs_start_transaction(root, 1);
-	ret = commit_tree_roots(trans, fs_info);
-	BUG_ON(ret);
-	ret = __commit_transaction(trans, root);
-	BUG_ON(ret);
-	write_ctree_super(trans, root);
-	btrfs_free_transaction(root, trans);
+	if (fs_info->last_trans_committed !=
+	    fs_info->generation) {
+		trans = btrfs_start_transaction(root, 1);
+		btrfs_commit_transaction(trans, root);
+		trans = btrfs_start_transaction(root, 1);
+		ret = commit_tree_roots(trans, fs_info);
+		BUG_ON(ret);
+		ret = __commit_transaction(trans, root);
+		BUG_ON(ret);
+		write_ctree_super(trans, root);
+		btrfs_free_transaction(root, trans);
+	}
 	btrfs_free_block_groups(fs_info);
 
 	free_fs_roots(fs_info);

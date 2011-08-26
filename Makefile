@@ -1,6 +1,6 @@
 CC=gcc
 AM_CFLAGS = -Wall -D_FILE_OFFSET_BITS=64 -D_FORTIFY_SOURCE=2
-CFLAGS = -g -Werror -Os
+CFLAGS = -g -Os
 objects = ctree.o disk-io.o radix-tree.o extent-tree.o print-tree.o \
 	  root-tree.o dir-item.o file-item.o inode-item.o \
 	  inode-map.o crc32c.o rbtree.o extent-cache.o extent_io.o \
@@ -17,8 +17,7 @@ bindir = $(prefix)/bin
 LIBS=-luuid
 
 progs = btrfsctl mkfs.btrfs btrfs-debug-tree btrfs-show btrfs-vol btrfsck \
-	btrfs \
-	btrfs-map-logical
+	btrfs btrfs-map-logical repair
 
 # make C=1 to enable sparse
 ifdef C
@@ -36,6 +35,9 @@ all: version $(progs) manpages
 
 version:
 	bash version.sh
+
+repair: $(objects) repair.o
+	gcc $(CFLAGS) -o repair repair.o $(objects) $(LDFLAGS) $(LIBS)
 
 btrfs: $(objects) btrfs.o btrfs_cmds.o
 	gcc $(CFLAGS) -o btrfs btrfs.o btrfs_cmds.o \
