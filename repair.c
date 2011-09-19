@@ -553,7 +553,7 @@ static int check_key(struct btrfs_root *root, struct btrfs_path *path)
 	btrfs_item_key_to_cpu(path->nodes[0], &key, path->slots[0]);
 
 	if (key.type > 228 && key.type != BTRFS_STRING_ITEM_KEY) {
-		fprintf("Invalid key type, deleting key %u\n", key.type);
+		fprintf(stderr, "Invalid key type, deleting key %u\n", key.type);
 		ret = delete_key_leaf(path);
 		return ret ? ret : 1;
 	}
@@ -608,8 +608,6 @@ static int check_leaf(struct btrfs_root *root, struct btrfs_path *path)
 	 */
 again:
 	for (i = 0; i < btrfs_header_nritems(b); i++) {
-		item = btrfs_item_nr(b, i);
-
 		path->slots[0] = i;
 
 		ret = check_key(root, path);
@@ -619,7 +617,12 @@ again:
 			print_leaf = 1;
 			goto again;
 		}
+	}
 
+	for (i = 0; i < btrfs_header_nritems(b); i++) {
+		item = btrfs_item_nr(b, i);
+
+		path->slots[0] = i;
 		ret = check_item(root, b, item);
 		if (ret) {
 			ret = fix_leaf_item(root, path);
