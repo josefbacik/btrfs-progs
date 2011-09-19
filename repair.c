@@ -615,7 +615,7 @@ again:
 		ret = check_key(root, path);
 		if (ret < 0)
 			return ret;
-		if (ret > 1) {
+		if (ret) {
 			print_leaf = 1;
 			goto again;
 		}
