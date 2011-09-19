@@ -558,6 +558,14 @@ static int check_key(struct btrfs_root *root, struct btrfs_path *path)
 		return ret ? ret : 1;
 	}
 
+	if (key.type == 0 && key.objectid != BTRFS_FREE_SPACE_OBJECTID &&
+	    key.objectid != BTRFS_FREE_INO_OBJECTID) {
+		fprintf(stderr, "Invalid key type, deleting key (%Lu %u %Lu)"
+			"\n", key.objectid, key.type, key.offset);
+		ret = delete_key_leaf(path);
+		return ret ? ret : 1;
+	}
+
 	switch (key.type) {
 		case BTRFS_EXTENT_ITEM_KEY:
 			if (key.offset == 0 ||
