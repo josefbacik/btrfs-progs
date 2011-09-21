@@ -150,7 +150,6 @@ struct inode_record {
 #define I_ERR_ODD_CSUM_ITEM		(1 << 11)
 #define I_ERR_SOME_CSUM_MISSING		(1 << 12)
 #define I_ERR_LINK_COUNT_WRONG		(1 << 13)
-#define I_ERR_LINK_SIZE_WRONG		(1 << 14)
 
 struct root_backref {
 	struct list_head list;
@@ -332,14 +331,8 @@ static void maybe_free_inode_rec(struct cache_tree *inode_cache,
 	} else if (S_ISREG(rec->imode) || S_ISLNK(rec->imode)) {
 		if (rec->found_dir_item)
 			rec->errors |= I_ERR_ODD_DIR_ITEM;
-		if (rec->found_size != rec->nbytes) {
-			printf("found size is %Lu, nbytes is %Lu\n",
-			       rec->found_size, rec->nbytes);
-			if (S_ISREG(rec->imode))
-				rec->errors |= I_ERR_FILE_NBYTES_WRONG;
-			else
-				rec->errors |= I_ERR_LINK_SIZE_WRONG;
-		}
+		if (rec->found_size != rec->nbytes)
+			rec->errors |= I_ERR_FILE_NBYTES_WRONG;
 		if (rec->extent_start == (u64)-1 || rec->extent_start > 0)
 			rec->first_extent_gap = 0;
 		if (rec->nlink > 0 && (rec->extent_end < rec->isize ||
@@ -1254,7 +1247,7 @@ static int check_inode_recs(struct btrfs_root *root,
 			rec->errors |= I_ERR_NO_INODE_ITEM;
 		if (rec->found_link != rec->nlink)
 			rec->errors |= I_ERR_LINK_COUNT_WRONG;
-		fprintf(stderr, "root %llu inode %llu errors 0x%x\n",
+		fprintf(stderr, "root %llu inode %llu errors %x\n",
 			(unsigned long long) root->root_key.objectid,
 			(unsigned long long) rec->ino, rec->errors);
 		list_for_each_entry(backref, &rec->backrefs, list) {
@@ -1265,7 +1258,7 @@ static int check_inode_recs(struct btrfs_root *root,
 			if (!backref->found_inode_ref)
 				backref->errors |= REF_ERR_NO_INODE_REF;
 			fprintf(stderr, "\tunresolved ref dir %llu index %llu"
-				" namelen %u name %s filetype %d error 0x%x\n",
+				" namelen %u name %s filetype %d error %x\n",
 				(unsigned long long)backref->dir,
 				(unsigned long long)backref->index,
 				backref->namelen, backref->name,
@@ -1529,7 +1522,7 @@ static int check_root_refs(struct btrfs_root *root,
 			if (!backref->errors && rec->found_root_item)
 				continue;
 			fprintf(stderr, "\tunresolved ref root %llu dir %llu"
-				" index %llu namelen %u name %s error 0x%x\n",
+				" index %llu namelen %u name %s error %x\n",
 				(unsigned long long)backref->ref_root,
 				(unsigned long long)backref->dir,
 				(unsigned long long)backref->index,
