@@ -666,8 +666,10 @@ again:
 		item = btrfs_item_nr(b, i);
 		size = btrfs_item_size(b, item);
 		offset = btrfs_item_offset(b, item);
-		if (size + offset == leaf_offset)
+		if (size + offset == leaf_offset || size == 0) {
+			leaf_offset -= size;
 			continue;
+		}
 
 		print_leaf = 1;
 		cow_path(root, path);
