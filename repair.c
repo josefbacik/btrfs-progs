@@ -259,6 +259,8 @@ static int check_node(struct btrfs_root *root, struct btrfs_path *path,
 	int ret;
 	u64 block;
 
+	BUG_ON(level != btrfs_header_level(b));
+	BUG_ON(level == 0);
 again:
 	for (i = 0; i < btrfs_header_nritems(b); i++) {
 		btrfs_node_key_to_cpu(b, &key, i);
@@ -938,10 +940,13 @@ int main(int argc, char **argv)
 
 	level = btrfs_header_level(extent_root->node);
 	path->nodes[level] = extent_root->node;
-	ret = check_node(extent_root, path, level);
+	if (level)
+		ret = check_node(extent_root, path, level);
+	else
+		ret = check_leaf(extent_root, path);
 
 	printf("Checking extent root\n");
-	while (1) {
+	while (level) {
 		path->nodes[level] = extent_root->node;
 		ret = check_children(extent_root, path, level);
 		memset(path, 0, sizeof(struct btrfs_path));
@@ -1010,8 +1015,11 @@ int main(int argc, char **argv)
 		printf("Checking root %Lu\n", tmp->objectid);
 		level = btrfs_header_level(tmp->node);
 		path->nodes[level] = tmp->node;
-		ret = check_node(tmp, path, level);
-		while (1) {
+		if (level)
+			ret = check_node(tmp, path, level);
+		else
+			ret = check_leaf(tmp, path);
+		while (level) {
 			path->nodes[level] = tmp->node;
 			ret = check_children(tmp, path, level);
 			memset(path, 0, sizeof(struct btrfs_path));
@@ -1025,9 +1033,11 @@ int main(int argc, char **argv)
 		printf("Checking root %Lu refs\n", tmp->objectid);
 		check_ref(tmp, btrfs_header_bytenr(tmp->node),
 			  btrfs_level_size(tmp, btrfs_header_level(tmp->node)));
-		ret = check_refs(tmp, path, tmp->node);
-		if (ret)
-			goto out_trans;
+		if (level) {
+			ret = check_refs(tmp, path, tmp->node);
+			if (ret)
+				goto out_trans;
+		}
 	}
 
 out_trans:
