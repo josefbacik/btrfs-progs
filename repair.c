@@ -605,6 +605,9 @@ static int check_leaf(struct btrfs_root *root, struct btrfs_path *path)
 {
 	struct extent_buffer *b = path->nodes[0];
 	struct btrfs_item *item;
+	char *new_leaf = NULL;
+	u32 leaf_offset = BTRFS_LEAF_DATA_SIZE(root);
+	unsigned long header = sizeof(struct btrfs_header);
 	int i = 0;
 	int ret;
 	int retry = 0, old_retry = 0;
@@ -641,19 +644,6 @@ again:
 			retry++;
 			continue;
 		}
-
-		if (i != btrfs_header_nritems(b) - 1) {
-			ret = check_key_order(root, path, offsetof(struct btrfs_leaf, items),
-					      sizeof(struct btrfs_item), 0, 0);
-			if (ret) {
-				fprintf(stderr, "Keys are out of order in a "
-					"leaf, this program cant fix that yet"
-					", tell the author so he can get off "
-					"his lazy ass and fix that\n");
-				btrfs_print_leaf(root, b);
-				return -1;
-			}
-		}
 	}
 
 	if (old_retry && retry == old_retry) {
@@ -668,6 +658,58 @@ again:
 		old_retry = retry;
 		retry = 0;
 		goto again;
+	}
+
+	for (i = 0; i < btrfs_header_nritems(b); i++) {
+		u32 size, offset;
+
+		item = btrfs_item_nr(b, i);
+		size = btrfs_item_size(b, item);
+		offset = btrfs_item_offset(b, item);
+		if (size + offset == leaf_offset)
+			continue;
+
+		print_leaf = 1;
+		cow_path(root, path);
+
+		if (!new_leaf) {
+			fprintf(stderr, "Leaf items aren't quite in the right "
+				"order, fixing\n");
+			new_leaf = malloc(root->leafsize);
+			if (!new_leaf) {
+				fprintf(stderr, "Not enough memory to allocate"
+					" temporary leaf\n");
+				return -1;
+			}
+			read_extent_buffer(b, new_leaf, 0, root->leafsize);
+		}
+		leaf_offset -= size;
+		memcpy(new_leaf + header + leaf_offset, b->data + header + offset,
+		       size);
+	}
+
+	if (new_leaf) {
+		write_extent_buffer(b, new_leaf, 0, root->leafsize);
+		if (!dry_run)
+			btrfs_mark_buffer_dirty(b);
+		free(new_leaf);
+		new_leaf = NULL;
+	}
+
+	for (i = 0; i < btrfs_header_nritems(b); i++) {
+		path->slots[0] = i;
+		if (i != btrfs_header_nritems(b) - 1) {
+			ret = check_key_order(root, path, offsetof(struct btrfs_leaf, items),
+					      sizeof(struct btrfs_item), 0, 0);
+			if (ret) {
+				fprintf(stderr, "Keys are out of order in a "
+					"leaf, this program cant fix that yet"
+					", tell the author so he can get off "
+					"his lazy ass and fix that\n");
+				btrfs_print_leaf(root, b);
+				return -1;
+			}
+		}
 	}
 
 	for (i = 0; i < btrfs_header_nritems(b); i++) {
