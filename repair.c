@@ -360,14 +360,12 @@ static int fix_leaf_item(struct btrfs_root *root, struct btrfs_path *path)
 	int next_slot = path->slots[0] + 1;
 	int prev_slot = path->slots[0] - 1;
 	int ret;
-	int did_cow = 0;
 
 	if (path->slots[0] == nritems - 1) {
 		fprintf(stderr, "Last item in the leaf, can't guess right\n");
 		return -1;
 	}
 
-	did_cow = !!cow_path(root, path);
 	b = path->nodes[0];
 	item = btrfs_item_nr(b, path->slots[0]);
 
@@ -465,7 +463,6 @@ static int verify_extent_item(struct btrfs_root *root, struct btrfs_path *path)
 	struct btrfs_extent_item *ei;
 	struct btrfs_key key;
 	int did_cow = 0;
-	int ret;
 	u64 flags;
 	u64 generation;
 	u64 refs;
@@ -695,7 +692,7 @@ again:
 	}
 
 	if (new_leaf) {
-		write_extent_buffer(b, new_leaf, 0, root->leafsize);
+		write_extent_buffer(b, new_leaf->data, 0, root->leafsize);
 		if (!dry_run)
 			btrfs_mark_buffer_dirty(b);
 		free(new_leaf);
