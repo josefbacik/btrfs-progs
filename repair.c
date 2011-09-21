@@ -553,6 +553,9 @@ static int check_key(struct btrfs_root *root, struct btrfs_path *path)
 
 	if (key.type > 228 && key.type != BTRFS_STRING_ITEM_KEY) {
 		fprintf(stderr, "Invalid key type, deleting key %u\n", key.type);
+		ret = cow_path(root, path);
+		if (ret < 0)
+			return ret;
 		ret = delete_key_leaf(path);
 		return ret ? ret : 1;
 	}
@@ -561,6 +564,9 @@ static int check_key(struct btrfs_root *root, struct btrfs_path *path)
 	    key.objectid != BTRFS_FREE_INO_OBJECTID) {
 		fprintf(stderr, "Invalid key type, deleting key (%Lu %u %Lu)"
 			"\n", key.objectid, key.type, key.offset);
+		ret = cow_path(root, path);
+		if (ret < 0)
+			return ret;
 		ret = delete_key_leaf(path);
 		return ret ? ret : 1;
 	}
@@ -572,6 +578,9 @@ static int check_key(struct btrfs_root *root, struct btrfs_path *path)
 			    btrfs_super_total_bytes(&info->super_copy)) {
 				fprintf(stderr, "Bad key offset, deleting %Lu\n",
 					key.offset);
+				ret = cow_path(root, path);
+				if (ret < 0)
+					return ret;
 				ret = delete_key_leaf(path);
 				return ret ? ret : 1;
 			}
@@ -660,6 +669,22 @@ again:
 	}
 
 	for (i = 0; i < btrfs_header_nritems(b); i++) {
+		path->slots[0] = i;
+		if (i != btrfs_header_nritems(b) - 1) {
+			ret = check_key_order(root, path, offsetof(struct btrfs_leaf, items),
+					      sizeof(struct btrfs_item), 0, 0);
+			if (ret) {
+				fprintf(stderr, "Keys are out of order in a "
+					"leaf, this program cant fix that yet"
+					", tell the author so he can get off "
+					"his lazy ass and fix that\n");
+				btrfs_print_leaf(root, b);
+				return -1;
+			}
+		}
+	}
+
+	for (i = 0; i < btrfs_header_nritems(b); i++) {
 		u32 size, offset;
 
 		item = btrfs_item_nr(b, i);
@@ -671,9 +696,11 @@ again:
 		}
 
 		print_leaf = 1;
-		cow_path(root, path);
-
 		if (!new_leaf) {
+			ret = cow_path(root, path);
+			if (ret < 0)
+				return ret;
+
 			fprintf(stderr, "Leaf items aren't quite in the right "
 				"order, fixing\n");
 			new_leaf = malloc(sizeof(struct extent_buffer) +
@@ -697,22 +724,6 @@ again:
 			btrfs_mark_buffer_dirty(b);
 		free(new_leaf);
 		new_leaf = NULL;
-	}
-
-	for (i = 0; i < btrfs_header_nritems(b); i++) {
-		path->slots[0] = i;
-		if (i != btrfs_header_nritems(b) - 1) {
-			ret = check_key_order(root, path, offsetof(struct btrfs_leaf, items),
-					      sizeof(struct btrfs_item), 0, 0);
-			if (ret) {
-				fprintf(stderr, "Keys are out of order in a "
-					"leaf, this program cant fix that yet"
-					", tell the author so he can get off "
-					"his lazy ass and fix that\n");
-				btrfs_print_leaf(root, b);
-				return -1;
-			}
-		}
 	}
 
 	for (i = 0; i < btrfs_header_nritems(b); i++) {
