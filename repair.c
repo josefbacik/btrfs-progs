@@ -607,7 +607,7 @@ static int check_leaf(struct btrfs_root *root, struct btrfs_path *path)
 {
 	struct extent_buffer *b = path->nodes[0];
 	struct btrfs_item *item;
-	char *new_leaf = NULL;
+	struct extent_buffer *new_leaf = NULL;
 	u32 leaf_offset = BTRFS_LEAF_DATA_SIZE(root);
 	unsigned long header = sizeof(struct btrfs_header);
 	int i = 0;
@@ -679,17 +679,19 @@ again:
 		if (!new_leaf) {
 			fprintf(stderr, "Leaf items aren't quite in the right "
 				"order, fixing\n");
-			new_leaf = malloc(root->leafsize);
+			new_leaf = malloc(sizeof(struct extent_buffer) +
+					  root->leafsize);
 			if (!new_leaf) {
 				fprintf(stderr, "Not enough memory to allocate"
 					" temporary leaf\n");
 				return -1;
 			}
-			read_extent_buffer(b, new_leaf, 0, root->leafsize);
+			copy_extent_buffer(new_leaf, b, 0, 0, root->leafsize);
 		}
 		leaf_offset -= size;
-		memcpy(new_leaf + header + leaf_offset, b->data + header + offset,
-		       size);
+		memcpy(new_leaf->data + header + leaf_offset,
+		       b->data + header + offset, size);
+		btrfs_set_item_offset(new_leaf, item, leaf_offset);
 	}
 
 	if (new_leaf) {
