@@ -366,6 +366,9 @@ static int fix_leaf_item(struct btrfs_root *root, struct btrfs_path *path)
 		return -1;
 	}
 
+	ret = cow_path(root, path);
+	if (ret < 0)
+		return ret;
 	b = path->nodes[0];
 	item = btrfs_item_nr(b, path->slots[0]);
 
@@ -626,6 +629,7 @@ static int check_leaf(struct btrfs_root *root, struct btrfs_path *path)
 	 * is the way it's supposed to be.
 	 */
 again:
+	b = path->nodes[0];
 	for (i = 0; i < btrfs_header_nritems(b); i++) {
 		path->slots[0] = i;
 
@@ -647,8 +651,10 @@ again:
 			ret = fix_leaf_item(root, path);
 			if (dry_run)
 				print_item(b, item, i);
-			if (ret == 1)
+			if (ret == 1) {
 				print_leaf = 1;
+				goto again;
+			}
 			retry++;
 			continue;
 		}
@@ -700,6 +706,8 @@ again:
 			ret = cow_path(root, path);
 			if (ret < 0)
 				return ret;
+			if (ret)
+				goto again;
 
 			fprintf(stderr, "Leaf items aren't quite in the right "
 				"order, fixing\n");
