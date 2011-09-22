@@ -712,6 +712,7 @@ again:
 			}
 			copy_extent_buffer(new_leaf, b, 0, 0, root->leafsize);
 		}
+		BUG_ON(leaf_offset < size);
 		leaf_offset -= size;
 		memcpy(new_leaf->data + header + leaf_offset,
 		       b->data + header + offset, size);
