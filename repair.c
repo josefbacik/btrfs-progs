@@ -95,6 +95,7 @@ static int cow_path(struct btrfs_root *root, struct btrfs_path *path)
 			return -1;
 		}
 
+		BUG_ON(btrfs_header_level(tmp) != i);
 		path->nodes[i] = tmp;
 		num_cowed++;
 	}
@@ -968,7 +969,7 @@ int main(int argc, char **argv)
 	while (level) {
 		path->nodes[level] = extent_root->node;
 		ret = check_children(extent_root, path, level);
-		memset(path, 0, sizeof(struct btrfs_path));
+		btrfs_release_path(NULL, path);
 		if (ret < 0)
 			goto out_trans;
 		if (!ret)
