@@ -165,6 +165,8 @@ static int verify_parent_transid(struct extent_io_tree *io_tree,
 	       (unsigned long long)eb->start,
 	       (unsigned long long)parent_transid,
 	       (unsigned long long)btrfs_header_generation(eb));
+	return 0;
+
 	ret = 1;
 out:
 	clear_extent_buffer_uptodate(io_tree, eb);
