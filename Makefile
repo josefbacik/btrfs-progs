@@ -17,7 +17,7 @@ bindir = $(prefix)/bin
 LIBS=-luuid
 
 progs = btrfsctl mkfs.btrfs btrfs-debug-tree btrfs-show btrfs-vol btrfsck \
-	btrfs btrfs-map-logical repair
+	btrfs btrfs-map-logical repair restore
 
 # make C=1 to enable sparse
 ifdef C
@@ -38,6 +38,9 @@ version:
 
 repair: $(objects) repair.o
 	gcc $(CFLAGS) -o repair repair.o $(objects) $(LDFLAGS) $(LIBS)
+
+restore: $(objects) restore.o
+	gcc $(CFLAGS) -o restore restore.o $(objects) $(LDFLAGS) $(LIBS)
 
 btrfs: $(objects) btrfs.o btrfs_cmds.o
 	gcc $(CFLAGS) -o btrfs btrfs.o btrfs_cmds.o \
