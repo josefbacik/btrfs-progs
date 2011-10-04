@@ -128,7 +128,7 @@ static int copy_one_extent(struct btrfs_root *root, int fd,
 	struct btrfs_multi_bio *multi = NULL;
 	struct btrfs_device *device;
 	char *inbuf, *outbuf = NULL;
-	ssize_t done;
+	ssize_t done, total = 0;
 	u64 bytenr;
 	u64 ram_size;
 	u64 disk_size;
@@ -195,13 +195,16 @@ again:
 
 
 	if (compress == BTRFS_COMPRESS_NONE) {
-		done = pwrite(fd, inbuf, ram_size, pos);
-		free(inbuf);
-		if (done < ram_size) {
-			fprintf(stderr, "Short write, wanted %Lu, did %zd: "
-				"%d\n", ram_size, done, errno);
-			return -1;
+		while (total < ram_size) {
+			done = pwrite(fd, inbuf+total, ram_size-total, pos);
+			if (done < 0) {
+				free(inbuf);
+				fprintf(stderr, "Error writing: %d\n", errno);
+				return -1;
+			}
+			total += done;
 		}
+		free(inbuf);
 		return 0;
 	}
 
@@ -212,13 +215,16 @@ again:
 		return ret;
 	}
 
-	done = pwrite(fd, outbuf, ram_size, pos);
-	free(outbuf);
-	if (done < ram_size) {
-		fprintf(stderr, "Short compressed write, wanted %Lu, did %zd: "
-			"%d\n", ram_size, done, errno);
-		return -1;
+	while (total < ram_size) {
+		done = pwrite(fd, outbuf+total, ram_size-total, pos);
+		if (done < 0) {
+			free(outbuf);
+			fprintf(stderr, "Error writing: %d\n", errno);
+			return -1;
+		}
+		total += done;
 	}
+	free(outbuf);
 
 	return 0;
 }
