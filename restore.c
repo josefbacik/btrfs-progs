@@ -36,6 +36,7 @@
 
 static char path_name[4096];
 static int get_snaps = 0;
+static int verbose = 0;
 
 static int decompress(char *inbuf, char *outbuf, u64 compress_len,
 		      u64 decompress_len)
@@ -89,7 +90,8 @@ static int copy_one_inline(int fd, struct btrfs_path *path, u64 pos)
 	if (compress == BTRFS_COMPRESS_NONE) {
 		done = pwrite(fd, buf, len, pos);
 		if (done < len) {
-			fprintf(stderr, "Short write: %d\n", errno);
+			fprintf(stderr, "Short inline write, wanted %d, did "
+				"%zd: %d\n", len, done, errno);
 			return -1;
 		}
 		return 0;
@@ -111,7 +113,8 @@ static int copy_one_inline(int fd, struct btrfs_path *path, u64 pos)
 	done = pwrite(fd, outbuf, ram_size, pos);
 	free(outbuf);
 	if (done < len) {
-		fprintf(stderr, "Short write: %d\n", errno);
+		fprintf(stderr, "Short compressed inline write, wanted %d, "
+			"did %zd: %d\n", ram_size, done, errno);
 		return -1;
 	}
 
@@ -195,7 +198,8 @@ again:
 		done = pwrite(fd, inbuf, ram_size, pos);
 		free(inbuf);
 		if (done < ram_size) {
-			fprintf(stderr, "Short write: %d\n", errno);
+			fprintf(stderr, "Short write, wanted %Lu, did %zd: "
+				"%d\n", ram_size, done, errno);
 			return -1;
 		}
 		return 0;
@@ -211,7 +215,8 @@ again:
 	done = pwrite(fd, outbuf, ram_size, pos);
 	free(outbuf);
 	if (done < ram_size) {
-		fprintf(stderr, "Short write: %d\n", errno);
+		fprintf(stderr, "Short compressed write, wanted %Lu, did %zd: "
+			"%d\n", ram_size, done, errno);
 		return -1;
 	}
 
@@ -368,6 +373,8 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 		 * files, no symlinks or anything else.
 		 */
 		if (type == BTRFS_FT_REG_FILE) {
+			if (verbose)
+				printf("Restoring %s\n", path_name);
 			fd = open(path_name, O_CREAT|O_WRONLY, 0644);
 			if (fd < 0) {
 				fprintf(stderr, "Error creating %s: %d\n",
@@ -417,6 +424,9 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				}
 			}
 
+			if (verbose)
+				printf("Restoring %s\n", path_name);
+
 			if (mkdir(path_name, 0644)) {
 				free(dir);
 				fprintf(stderr, "Error mkdiring %s: %d\n",
@@ -453,10 +463,13 @@ int main(int argc, char **argv)
 	int ret;
 	int opt;
 
-	while ((opt = getopt(argc, argv, "s")) != -1) {
+	while ((opt = getopt(argc, argv, "sv")) != -1) {
 		switch (opt) {
 			case 's':
 				get_snaps = 1;
+				break;
+			case 'v':
+				verbose++;
 				break;
 			default:
 				usage();
