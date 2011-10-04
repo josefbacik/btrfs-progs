@@ -196,7 +196,8 @@ again:
 
 	if (compress == BTRFS_COMPRESS_NONE) {
 		while (total < ram_size) {
-			done = pwrite(fd, inbuf+total, ram_size-total, pos);
+			done = pwrite(fd, inbuf+total, ram_size-total,
+				      pos+total);
 			if (done < 0) {
 				free(inbuf);
 				fprintf(stderr, "Error writing: %d\n", errno);
@@ -216,7 +217,7 @@ again:
 	}
 
 	while (total < ram_size) {
-		done = pwrite(fd, outbuf+total, ram_size-total, pos);
+		done = pwrite(fd, outbuf+total, ram_size-total, pos+total);
 		if (done < 0) {
 			free(outbuf);
 			fprintf(stderr, "Error writing: %d\n", errno);
