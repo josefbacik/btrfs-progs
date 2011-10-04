@@ -15,6 +15,7 @@ INSTALL= install
 prefix ?= /usr/local
 bindir = $(prefix)/bin
 LIBS=-luuid
+RESTORE_LIBS=-lz
 
 progs = btrfsctl mkfs.btrfs btrfs-debug-tree btrfs-show btrfs-vol btrfsck \
 	btrfs btrfs-map-logical repair restore
@@ -40,7 +41,7 @@ repair: $(objects) repair.o
 	gcc $(CFLAGS) -o repair repair.o $(objects) $(LDFLAGS) $(LIBS)
 
 restore: $(objects) restore.o
-	gcc $(CFLAGS) -o restore restore.o $(objects) $(LDFLAGS) $(LIBS)
+	gcc $(CFLAGS) -o restore restore.o $(objects) $(LDFLAGS) $(LIBS) $(RESTORE_LIBS)
 
 btrfs: $(objects) btrfs.o btrfs_cmds.o
 	gcc $(CFLAGS) -o btrfs btrfs.o btrfs_cmds.o \

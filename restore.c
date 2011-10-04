@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <zlib.h>
 #include "kerncompat.h"
 #include "ctree.h"
 #include "disk-io.h"
@@ -34,27 +35,135 @@
 #include "utils.h"
 
 static char path_name[4096];
-static char buf[4096];
 static int get_snaps = 0;
 
-static int copy_one_extent(struct btrfs_root *root, int fd, u64 pos, u64 bytenr,
-			   u64 size)
+static int decompress(char *inbuf, char *outbuf, u64 compress_len,
+		      u64 decompress_len)
+{
+	z_stream strm;
+	int ret;
+
+	memset(&strm, 0, sizeof(strm));
+	ret = inflateInit(&strm);
+	if (ret != Z_OK) {
+		fprintf(stderr, "inflate init returnd %d\n", ret);
+		return -1;
+	}
+
+	strm.avail_in = compress_len;
+	strm.next_in = (unsigned char *)inbuf;
+	strm.avail_out = decompress_len;
+	strm.next_out = (unsigned char *)outbuf;
+	ret = inflate(&strm, Z_NO_FLUSH);
+	if (ret != Z_STREAM_END) {
+		(void)inflateEnd(&strm);
+		fprintf(stderr, "ret is %d\n", ret);
+		return -1;
+	}
+
+	(void)inflateEnd(&strm);
+	return 0;
+}
+
+static int copy_one_inline(int fd, struct btrfs_path *path, u64 pos)
+{
+	struct extent_buffer *leaf = path->nodes[0];
+	struct btrfs_file_extent_item *fi;
+	char buf[4096];
+	char *outbuf;
+	ssize_t done;
+	unsigned long ptr;
+	int ret;
+	int len;
+	int ram_size;
+	int compress;
+
+	fi = btrfs_item_ptr(leaf, path->slots[0],
+			    struct btrfs_file_extent_item);
+	ptr = btrfs_file_extent_inline_start(fi);
+	len = btrfs_file_extent_inline_item_len(leaf,
+					btrfs_item_nr(leaf, path->slots[0]));
+	read_extent_buffer(leaf, buf, ptr, len);
+
+	compress = btrfs_file_extent_compression(leaf, fi);
+	if (compress == BTRFS_COMPRESS_NONE) {
+		done = pwrite(fd, buf, len, pos);
+		if (done < len) {
+			fprintf(stderr, "Short write: %d\n", errno);
+			return -1;
+		}
+		return 0;
+	}
+
+	ram_size = btrfs_file_extent_ram_bytes(leaf, fi);
+	outbuf = malloc(ram_size);
+	if (!outbuf) {
+		fprintf(stderr, "No memory\n");
+		return -1;
+	}
+
+	ret = decompress(buf, outbuf, len, ram_size);
+	if (ret) {
+		free(outbuf);
+		return ret;
+	}
+
+	done = pwrite(fd, outbuf, ram_size, pos);
+	free(outbuf);
+	if (done < len) {
+		fprintf(stderr, "Short write: %d\n", errno);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int copy_one_extent(struct btrfs_root *root, int fd,
+			   struct extent_buffer *leaf,
+			   struct btrfs_file_extent_item *fi, u64 pos)
 {
 	struct btrfs_multi_bio *multi = NULL;
 	struct btrfs_device *device;
+	char *inbuf, *outbuf = NULL;
 	ssize_t done;
+	u64 bytenr;
+	u64 ram_size;
+	u64 disk_size;
 	u64 length;
-	u64 size_left = size;
+	u64 size_left;
 	u64 dev_bytenr;
-	u64 count;
+	u64 count = 0;
+	int compress;
 	int ret;
 	int dev_fd;
 
+	compress = btrfs_file_extent_compression(leaf, fi);
+	bytenr = btrfs_file_extent_disk_bytenr(leaf, fi);
+	disk_size = btrfs_file_extent_disk_num_bytes(leaf, fi);
+	ram_size = btrfs_file_extent_ram_bytes(leaf, fi);
+	size_left = disk_size;
+
+	inbuf = malloc(disk_size);
+	if (!inbuf) {
+		fprintf(stderr, "No memory\n");
+		return -1;
+	}
+
+	if (compress != BTRFS_COMPRESS_NONE) {
+		outbuf = malloc(ram_size);
+		if (!outbuf) {
+			fprintf(stderr, "No memory\n");
+			free(inbuf);
+			return -1;
+		}
+	}
 again:
 	length = size_left;
 	ret = btrfs_map_block(&root->fs_info->mapping_tree, READ,
 			      bytenr, &length, &multi, 0);
 	if (ret) {
+		free(inbuf);
+		free(outbuf);
 		fprintf(stderr, "Error mapping block %d\n", ret);
 		return ret;
 	}
@@ -67,26 +176,44 @@ again:
 	if (size_left < length)
 		length = size_left;
 	size_left -= length;
-	while (length) {
-		count = min_t(u64, 4096, length);
-		done = pread(dev_fd, buf, count, dev_bytenr);
-		if (done < count) {
-			fprintf(stderr, "Short read %d\n", errno);
-			return -1;
-		}
 
-		done = pwrite(fd, buf, count, pos);
-		if (done < count) {
-			fprintf(stderr, "Short write %d\n", errno);
-			return -1;
-		}
-		pos += count;
-		dev_bytenr += count;
-		bytenr += count;
-		length -= count;
+	done = pread(dev_fd, inbuf+count, length, dev_bytenr);
+	if (done < length) {
+		free(inbuf);
+		free(outbuf);
+		fprintf(stderr, "Short read %d\n", errno);
+		return -1;
 	}
+
+	count += length;
+	bytenr += length;
 	if (size_left)
 		goto again;
+
+
+	if (compress == BTRFS_COMPRESS_NONE) {
+		done = pwrite(fd, inbuf, ram_size, pos);
+		free(inbuf);
+		if (done < ram_size) {
+			fprintf(stderr, "Short write: %d\n", errno);
+			return -1;
+		}
+		return 0;
+	}
+
+	ret = decompress(inbuf, outbuf, disk_size, ram_size);
+	free(inbuf);
+	if (ret) {
+		free(outbuf);
+		return ret;
+	}
+
+	done = pwrite(fd, outbuf, ram_size, pos);
+	free(outbuf);
+	if (done < ram_size) {
+		fprintf(stderr, "Short write: %d\n", errno);
+		return -1;
+	}
 
 	return 0;
 }
@@ -142,7 +269,7 @@ static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key)
 				    struct btrfs_file_extent_item);
 		extent_type = btrfs_file_extent_type(leaf, fi);
 		compression = btrfs_file_extent_compression(leaf, fi);
-		if (compression != BTRFS_COMPRESS_NONE) {
+		if (compression >= BTRFS_COMPRESS_LAST) {
 			fprintf(stderr, "Don't support compression yet %d\n",
 				compression);
 			btrfs_free_path(path);
@@ -152,29 +279,20 @@ static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key)
 		if (extent_type == BTRFS_FILE_EXTENT_PREALLOC)
 			continue;
 		if (extent_type == BTRFS_FILE_EXTENT_INLINE) {
-			unsigned long ptr;
-			int len;
-
-			ptr = btrfs_file_extent_inline_start(fi);
-			len = btrfs_file_extent_ram_bytes(leaf, fi);
-			read_extent_buffer(leaf, buf, ptr, len);
-			ret = pwrite(fd, buf, len, found_key.offset);
-			if (ret < len) {
-				fprintf(stderr, "Short write: %d\n", errno);
+			ret = copy_one_inline(fd, path, found_key.offset);
+			if (ret) {
 				btrfs_free_path(path);
 				return -1;
 			}
 		} else if (extent_type == BTRFS_FILE_EXTENT_REG) {
-			u64 bytenr, size;
-
-			bytenr = btrfs_file_extent_disk_bytenr(leaf, fi);
-			size = btrfs_file_extent_ram_bytes(leaf, fi);
-			ret = copy_one_extent(root, fd, found_key.offset,
-					      bytenr, size);
+			ret = copy_one_extent(root, fd, leaf, fi,
+					      found_key.offset);
 			if (ret) {
 				btrfs_free_path(path);
 				return ret;
 			}
+		} else {
+			printf("Weird extent type %d\n", extent_type);
 		}
 		path->slots[0]++;
 	}
@@ -197,7 +315,6 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 	int fd;
 	u8 type;
 
-	printf("using dir %s\n", dir);
 	path = btrfs_alloc_path();
 	if (!path) {
 		fprintf(stderr, "Ran out of memory\n");
@@ -251,7 +368,6 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 		 * files, no symlinks or anything else.
 		 */
 		if (type == BTRFS_FT_REG_FILE) {
-			printf("creating file %s\n", path_name);
 			fd = open(path_name, O_CREAT|O_WRONLY, 0644);
 			if (fd < 0) {
 				fprintf(stderr, "Error creating %s: %d\n",
@@ -294,13 +410,13 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				if (search_root->root_key.offset != 0 &&
 				    get_snaps == 0) {
 					free(dir);
+					path->slots[0]++;
 					printf("Skipping snapshot %s\n",
 					       filename);
 					continue;
 				}
 			}
 
-			printf("making dir %s\n", path_name);
 			if (mkdir(path_name, 0644)) {
 				free(dir);
 				fprintf(stderr, "Error mkdiring %s: %d\n",
