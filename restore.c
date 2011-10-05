@@ -409,6 +409,16 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 			}
 
 			if (location.type == BTRFS_ROOT_ITEM_KEY) {
+				/*
+				 * If we are a snapshot and this is the index
+				 * object to ourselves just skip it.
+				 */
+				if (location.objectid ==
+				    root->root_key.objectid) {
+					free(dir);
+					goto next;
+				}
+
 				search_root = btrfs_read_fs_root(root->fs_info,
 								 &location);
 				if (IS_ERR(search_root)) {
@@ -431,6 +441,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 					       filename);
 					goto next;
 				}
+				location.objectid = BTRFS_FIRST_FREE_OBJECTID;
 			}
 
 			if (verbose)
