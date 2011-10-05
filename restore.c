@@ -37,6 +37,7 @@
 static char path_name[4096];
 static int get_snaps = 0;
 static int verbose = 0;
+static int ignore_errors = 0;
 
 static int decompress(char *inbuf, char *outbuf, u64 compress_len,
 		      u64 decompress_len)
@@ -389,12 +390,16 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 			if (fd < 0) {
 				fprintf(stderr, "Error creating %s: %d\n",
 					path_name, errno);
+				if (ignore_errors)
+					goto next;
 				btrfs_free_path(path);
 				return -1;
 			}
 			ret = copy_file(root, fd, &location);
 			close(fd);
 			if (ret) {
+				if (ignore_errors)
+					goto next;
 				btrfs_free_path(path);
 				return ret;
 			}
@@ -427,6 +432,8 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 						"subvolume %s: %lu\n",
 						path_name,
 						PTR_ERR(search_root));
+					if (ignore_errors)
+						goto next;
 					return PTR_ERR(search_root);
 				}
 
@@ -451,12 +458,16 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				free(dir);
 				fprintf(stderr, "Error mkdiring %s: %d\n",
 					path_name, errno);
+				if (ignore_errors)
+					goto next;
 				btrfs_free_path(path);
 				return -1;
 			}
 			ret = search_dir(search_root, &location, dir);
 			free(dir);
 			if (ret) {
+				if (ignore_errors)
+					goto next;
 				btrfs_free_path(path);
 				return ret;
 			}
@@ -483,13 +494,16 @@ int main(int argc, char **argv)
 	int ret;
 	int opt;
 
-	while ((opt = getopt(argc, argv, "sv")) != -1) {
+	while ((opt = getopt(argc, argv, "svi")) != -1) {
 		switch (opt) {
 			case 's':
 				get_snaps = 1;
 				break;
 			case 'v':
 				verbose++;
+				break;
+			case 'i':
+				ignore_errors = 1;
 				break;
 			default:
 				usage();
