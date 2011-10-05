@@ -2931,6 +2931,8 @@ int btrfs_next_leaf(struct btrfs_root *root, struct btrfs_path *path)
 			reada_for_search(root, path, level, slot, 0);
 
 		next = read_node_slot(root, c, slot);
+		if (!next)
+			return -EIO;
 		break;
 	}
 	path->slots[level] = slot;
@@ -2945,6 +2947,8 @@ int btrfs_next_leaf(struct btrfs_root *root, struct btrfs_path *path)
 		if (path->reada)
 			reada_for_search(root, path, level, 0, 0);
 		next = read_node_slot(root, next, 0);
+		if (!next)
+			return -EIO;
 	}
 	return 0;
 }

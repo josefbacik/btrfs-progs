@@ -266,6 +266,7 @@ static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key)
 				btrfs_free_path(path);
 				return ret;
 			} else if (ret) {
+				ret = 0;
 				/* No more leaves to search */
 				break;
 			}
@@ -289,7 +290,7 @@ static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key)
 		}
 
 		if (extent_type == BTRFS_FILE_EXTENT_PREALLOC)
-			continue;
+			goto next;
 		if (extent_type == BTRFS_FILE_EXTENT_INLINE) {
 			ret = copy_one_inline(fd, path, found_key.offset);
 			if (ret) {
@@ -306,6 +307,7 @@ static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key)
 		} else {
 			printf("Weird extent type %d\n", extent_type);
 		}
+next:
 		path->slots[0]++;
 	}
 
@@ -354,6 +356,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				return ret;
 			} else if (ret) {
 				/* No more leaves to search */
+				ret = 0;
 				break;
 			}
 			leaf = path->nodes[0];
@@ -424,10 +427,9 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				if (search_root->root_key.offset != 0 &&
 				    get_snaps == 0) {
 					free(dir);
-					path->slots[0]++;
 					printf("Skipping snapshot %s\n",
 					       filename);
-					continue;
+					goto next;
 				}
 			}
 
@@ -448,7 +450,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				return ret;
 			}
 		}
-
+next:
 		path->slots[0]++;
 	}
 
