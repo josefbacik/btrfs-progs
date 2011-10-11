@@ -485,6 +485,23 @@ static void usage()
 	fprintf(stderr, "Usage: restore [-s] <device> <directory>\n");
 }
 
+static struct btrfs_root *open_fs(const char *dev)
+{
+	struct btrfs_root *root;
+	u64 bytenr;
+	int i;
+
+	for (i = 0; i < BTRFS_SUPER_MIRROR_MAX; i++) {
+		bytenr = btrfs_sb_offset(i);
+		root = open_ctree(dev, bytenr, 0);
+		if (root)
+			return root;
+		fprintf(stderr, "Could not open root, trying backup super\n");
+	}
+
+	return NULL;
+}
+
 int main(int argc, char **argv)
 {
 	struct btrfs_root *root;
@@ -525,11 +542,9 @@ int main(int argc, char **argv)
 		return -EBUSY;
 	}
 
-	root = open_ctree(argv[optind], 0, 0);
-	if (root == NULL) {
-		fprintf(stderr, "Could not open root\n");
+	root = open_fs(argv[optind]);
+	if (root == NULL)
 		return 1;
-	}
 
 	memset(path_name, 0, 4096);
 
