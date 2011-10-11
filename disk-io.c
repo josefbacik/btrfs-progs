@@ -149,7 +149,8 @@ int readahead_tree_block(struct btrfs_root *root, u64 bytenr, u32 blocksize,
 }
 
 static int verify_parent_transid(struct extent_io_tree *io_tree,
-				 struct extent_buffer *eb, u64 parent_transid)
+				 struct extent_buffer *eb, u64 parent_transid,
+				 int ignore)
 {
 	int ret;
 
@@ -165,7 +166,10 @@ static int verify_parent_transid(struct extent_io_tree *io_tree,
 	       (unsigned long long)eb->start,
 	       (unsigned long long)parent_transid,
 	       (unsigned long long)btrfs_header_generation(eb));
-	return 0;
+	if (ignore) {
+		printk("Ignoring transid failure\n");
+		return 0;
+	}
 
 	ret = 1;
 out:
@@ -182,10 +186,13 @@ struct extent_buffer *read_tree_block(struct btrfs_root *root, u64 bytenr,
 	int dev_nr;
 	struct extent_buffer *eb;
 	u64 length;
+	u64 best_transid = 0;
 	struct btrfs_multi_bio *multi = NULL;
 	struct btrfs_device *device;
 	int mirror_num = 0;
+	int good_mirror = 0;
 	int num_copies;
+	int ignore = 0;
 
 	eb = btrfs_find_create_tree_block(root, bytenr, blocksize);
 	if (!eb)
@@ -208,18 +215,26 @@ struct extent_buffer *read_tree_block(struct btrfs_root *root, u64 bytenr,
 		ret = read_extent_from_disk(eb);
 		if (ret == 0 && check_tree_block(root, eb) == 0 &&
 		    csum_tree_block(root, eb, 1) == 0 &&
-		    verify_parent_transid(eb->tree, eb, parent_transid) == 0) {
+		    verify_parent_transid(eb->tree, eb, parent_transid, ignore)
+		    == 0) {
 			btrfs_set_buffer_uptodate(eb);
 			return eb;
 		}
 		num_copies = btrfs_num_copies(&root->fs_info->mapping_tree,
 					      eb->start, eb->len);
 		if (num_copies == 1) {
-			break;
+			ignore = 1;
+			continue;
+		}
+		if (btrfs_header_generation(eb) > best_transid) {
+			best_transid = btrfs_header_generation(eb);
+			good_mirror = mirror_num;
 		}
 		mirror_num++;
 		if (mirror_num > num_copies) {
-			break;
+			mirror_num = good_mirror;
+			ignore = 1;
+			continue;
 		}
 	}
 	free_extent_buffer(eb);
@@ -1028,7 +1043,7 @@ int btrfs_buffer_uptodate(struct extent_buffer *buf, u64 parent_transid)
 	if (!ret)
 		return ret;
 
-	ret = verify_parent_transid(buf->tree, buf, parent_transid);
+	ret = verify_parent_transid(buf->tree, buf, parent_transid, 1);
 	return !ret;
 }
 
