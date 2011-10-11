@@ -222,6 +222,13 @@ struct extent_buffer *read_tree_block(struct btrfs_root *root, u64 bytenr,
 			btrfs_set_buffer_uptodate(eb);
 			return eb;
 		}
+		if (ignore) {
+			if (check_tree_block(root, eb))
+				printk("read block failed check_tree_block\n");
+			else
+				printk("Csum didn't match\n");
+			break;
+		}
 		num_copies = btrfs_num_copies(&root->fs_info->mapping_tree,
 					      eb->start, eb->len);
 		if (num_copies == 1) {
