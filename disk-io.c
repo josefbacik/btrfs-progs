@@ -43,8 +43,11 @@ static int check_tree_block(struct btrfs_root *root, struct extent_buffer *buf)
 	struct btrfs_fs_devices *fs_devices;
 	int ret = 1;
 
-	if (buf->start != btrfs_header_bytenr(buf))
+	if (buf->start != btrfs_header_bytenr(buf)) {
+		printk("Check tree block failed, want=%Lu, have=%Lu\n",
+		       buf->start, btrfs_header_bytenr(buf));
 		return ret;
+	}
 
 	fs_devices = root->fs_info->fs_devices;
 	while (fs_devices) {
@@ -56,6 +59,7 @@ static int check_tree_block(struct btrfs_root *root, struct extent_buffer *buf)
 		}
 		fs_devices = fs_devices->seed;
 	}
+	printk("UUID didn't match for block %Lu\n", buf->start);
 	return ret;
 }
 
