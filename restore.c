@@ -428,6 +428,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				       " %s.  If you wish to overwrite use the"
 				       " -o option to overwrite\n", path_name);
 				warn = 1;
+				goto next;
 			}
 			ret = 0;
 		}
