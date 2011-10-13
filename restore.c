@@ -538,10 +538,11 @@ next:
 
 static void usage()
 {
-	fprintf(stderr, "Usage: restore [-s] <device> <directory>\n");
+	fprintf(stderr, "Usage: restore [-svio] [-t disk offset] <device> "
+		"<directory>\n");
 }
 
-static struct btrfs_root *open_fs(const char *dev)
+static struct btrfs_root *open_fs(const char *dev, u64 root_location)
 {
 	struct btrfs_root *root;
 	u64 bytenr;
@@ -549,7 +550,7 @@ static struct btrfs_root *open_fs(const char *dev)
 
 	for (i = 0; i < BTRFS_SUPER_MIRROR_MAX; i++) {
 		bytenr = btrfs_sb_offset(i);
-		root = open_ctree(dev, bytenr, 0);
+		root = open_ctree_recovery(dev, bytenr, root_location);
 		if (root)
 			return root;
 		fprintf(stderr, "Could not open root, trying backup super\n");
@@ -563,11 +564,12 @@ int main(int argc, char **argv)
 	struct btrfs_root *root;
 	struct btrfs_key key;
 	char dir_name[128];
+	u64 tree_location = 0;
 	int len;
 	int ret;
 	int opt;
 
-	while ((opt = getopt(argc, argv, "svio")) != -1) {
+	while ((opt = getopt(argc, argv, "sviot:")) != -1) {
 		switch (opt) {
 			case 's':
 				get_snaps = 1;
@@ -580,6 +582,14 @@ int main(int argc, char **argv)
 				break;
 			case 'o':
 				overwrite = 1;
+				break;
+			case 't':
+				errno = 0;
+				tree_location = (u64)strtoll(optarg, NULL, 10);
+				if (errno != 0) {
+					fprintf(stderr, "Tree location not valid\n");
+					exit(1);
+				}
 				break;
 			default:
 				usage();
@@ -601,7 +611,7 @@ int main(int argc, char **argv)
 		return -EBUSY;
 	}
 
-	root = open_fs(argv[optind]);
+	root = open_fs(argv[optind], tree_location);
 	if (root == NULL)
 		return 1;
 
