@@ -39,6 +39,7 @@ static char path_name[4096];
 static int get_snaps = 0;
 static int verbose = 0;
 static int ignore_errors = 0;
+static int overwrite = 0;
 
 static int decompress(char *inbuf, char *outbuf, u64 compress_len,
 		      u64 decompress_len)
@@ -415,6 +416,22 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 
 		snprintf(path_name, 4096, "%s/%s", dir, filename);
 
+		if (!overwrite) {
+			static int warn = 0;
+			struct stat st;
+
+			ret = stat(path_name, &st);
+			if (!ret) {
+				if (warn)
+					continue;
+				printf("Skipping exising file on target volume"
+				       " %s.  If you wish to overwrite use the"
+				       " -o option to overwrite\n", path_name);
+				warn = 1;
+			}
+			ret = 0;
+		}
+
 		/*
 		 * At this point we're only going to restore directories and
 		 * files, no symlinks or anything else.
@@ -549,7 +566,7 @@ int main(int argc, char **argv)
 	int ret;
 	int opt;
 
-	while ((opt = getopt(argc, argv, "svi")) != -1) {
+	while ((opt = getopt(argc, argv, "svio")) != -1) {
 		switch (opt) {
 			case 's':
 				get_snaps = 1;
@@ -559,6 +576,9 @@ int main(int argc, char **argv)
 				break;
 			case 'i':
 				ignore_errors = 1;
+				break;
+			case 'o':
+				overwrite = 1;
 				break;
 			default:
 				usage();

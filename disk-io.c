@@ -59,7 +59,6 @@ static int check_tree_block(struct btrfs_root *root, struct extent_buffer *buf)
 		}
 		fs_devices = fs_devices->seed;
 	}
-	printk("UUID didn't match for block %Lu\n", buf->start);
 	return ret;
 }
 
