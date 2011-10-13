@@ -1333,7 +1333,7 @@ int btrfs_read_sys_array(struct btrfs_root *root)
 	u8 *ptr;
 	unsigned long sb_ptr;
 	u32 cur;
-	int ret;
+	int ret = 0;
 
 	sb = btrfs_find_create_tree_block(root, BTRFS_SUPER_INFO_OFFSET,
 					  BTRFS_SUPER_INFO_SIZE);
@@ -1364,7 +1364,8 @@ int btrfs_read_sys_array(struct btrfs_root *root)
 		if (key.type == BTRFS_CHUNK_ITEM_KEY) {
 			chunk = (struct btrfs_chunk *)sb_ptr;
 			ret = read_one_chunk(root, &key, sb, chunk);
-			BUG_ON(ret);
+			if (ret)
+				break;
 			num_stripes = btrfs_chunk_num_stripes(sb, chunk);
 			len = btrfs_chunk_item_size(num_stripes);
 		} else {
@@ -1375,7 +1376,7 @@ int btrfs_read_sys_array(struct btrfs_root *root)
 		cur += len;
 	}
 	free_extent_buffer(sb);
-	return 0;
+	return ret;
 }
 
 int btrfs_read_chunk_tree(struct btrfs_root *root)
