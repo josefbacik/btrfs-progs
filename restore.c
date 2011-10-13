@@ -18,6 +18,7 @@
 
 #define _XOPEN_SOURCE 500
 #define _GNU_SOURCE 1
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -231,7 +232,27 @@ again:
 	return 0;
 }
 
-static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key)
+static int ask_to_continue(const char *file)
+{
+	char buf[2];
+	char *ret;
+
+	printf("We seem to be looping a lot on %s, do you want to keep going "
+	       "on ? (y/N): ", file);
+again:
+	ret = fgets(buf, 2, stdin);
+	if (*ret == '\n' || tolower(*ret) == 'n')
+		return 1;
+	if (tolower(*ret) != 'y') {
+		printf("Please enter either 'y' or 'n': ");
+		goto again;
+	}
+
+	return 0;
+}
+
+static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key,
+		     const char *file)
 {
 	struct extent_buffer *leaf;
 	struct btrfs_path *path;
@@ -240,6 +261,7 @@ static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key)
 	int ret;
 	int extent_type;
 	int compression;
+	int loops = 0;
 
 	path = btrfs_alloc_path();
 	if (!path) {
@@ -260,6 +282,12 @@ static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key)
 
 	leaf = path->nodes[0];
 	while (1) {
+		if (loops++ >= 1024) {
+			ret = ask_to_continue(file);
+			if (ret)
+				break;
+			loops = 0;
+		}
 		if (path->slots[0] >= btrfs_header_nritems(leaf)) {
 			ret = btrfs_next_leaf(root, path);
 			if (ret < 0) {
@@ -328,6 +356,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 	int name_len;
 	int ret;
 	int fd;
+	int loops = 0;
 	u8 type;
 
 	path = btrfs_alloc_path();
@@ -349,6 +378,13 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 
 	leaf = path->nodes[0];
 	while (1) {
+		if (loops++ >= 1024) {
+			printf("We have looped trying to restore files in %s "
+			       "too many times to be making progress, "
+			       "stopping\n", dir);
+			break;
+		}
+
 		if (path->slots[0] >= btrfs_header_nritems(leaf)) {
 			ret = btrfs_next_leaf(root, path);
 			if (ret < 0) {
@@ -395,7 +431,8 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				btrfs_free_path(path);
 				return -1;
 			}
-			ret = copy_file(root, fd, &location);
+			loops = 0;
+			ret = copy_file(root, fd, &location, path_name);
 			close(fd);
 			if (ret) {
 				if (ignore_errors)
@@ -463,6 +500,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				btrfs_free_path(path);
 				return -1;
 			}
+			loops = 0;
 			ret = search_dir(search_root, &location, dir);
 			free(dir);
 			if (ret) {
