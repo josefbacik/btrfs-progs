@@ -430,6 +430,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				warn = 1;
 				goto next;
 			}
+			loops = 0;
 			ret = 0;
 		}
 
