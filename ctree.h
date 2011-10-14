@@ -1737,6 +1737,10 @@ int btrfs_update_block_group(struct btrfs_trans_handle *trans,
 			     struct btrfs_root *root, u64 bytenr, u64 num,
 			     int alloc, int mark_free);
 /* ctree.c */
+void reada_for_search(struct btrfs_root *root, struct btrfs_path *path,
+			     int level, int slot, u64 objectid);
+struct extent_buffer *read_node_slot(struct btrfs_root *root,
+				   struct extent_buffer *parent, int slot);
 int btrfs_previous_item(struct btrfs_root *root,
 			struct btrfs_path *path, u64 min_objectid,
 			int type);

@@ -69,6 +69,58 @@ static int decompress(char *inbuf, char *outbuf, u64 compress_len,
 	return 0;
 }
 
+int next_leaf(struct btrfs_root *root, struct btrfs_path *path)
+{
+	int slot;
+	int level = 1;
+	struct extent_buffer *c;
+	struct extent_buffer *next = NULL;
+
+	for (; level < BTRFS_MAX_LEVEL; level++) {
+		if (path->nodes[level])
+			break;
+	}
+
+	slot = path->slots[level] + 1;
+
+	while(level < BTRFS_MAX_LEVEL) {
+		if (!path->nodes[level])
+			return 1;
+
+		slot = path->slots[level] + 1;
+		c = path->nodes[level];
+		if (slot >= btrfs_header_nritems(c)) {
+			level++;
+			if (level == BTRFS_MAX_LEVEL)
+				return 1;
+			continue;
+		}
+
+		if (next)
+			free_extent_buffer(next);
+
+		if (path->reada)
+			reada_for_search(root, path, level, slot, 0);
+
+		next = read_node_slot(root, c, slot);
+		break;
+	}
+	path->slots[level] = slot;
+	while(1) {
+		level--;
+		c = path->nodes[level];
+		free_extent_buffer(c);
+		path->nodes[level] = next;
+		path->slots[level] = 0;
+		if (!level)
+			break;
+		if (path->reada)
+			reada_for_search(root, path, level, 0, 0);
+		next = read_node_slot(root, next, 0);
+	}
+	return 0;
+}
+
 static int copy_one_inline(int fd, struct btrfs_path *path, u64 pos)
 {
 	struct extent_buffer *leaf = path->nodes[0];
@@ -252,6 +304,7 @@ again:
 	return 0;
 }
 
+
 static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key,
 		     const char *file)
 {
@@ -290,17 +343,19 @@ static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key,
 			loops = 0;
 		}
 		if (path->slots[0] >= btrfs_header_nritems(leaf)) {
-			ret = btrfs_next_leaf(root, path);
-			if (ret < 0) {
-				fprintf(stderr, "Error searching %d\n", ret);
-				btrfs_free_path(path);
-				return ret;
-			} else if (ret) {
-				ret = 0;
-				/* No more leaves to search */
-				break;
-			}
-			leaf = path->nodes[0];
+			do {
+				ret = next_leaf(root, path);
+				if (ret < 0) {
+					fprintf(stderr, "Error searching %d\n", ret);
+					btrfs_free_path(path);
+					return ret;
+				} else if (ret) {
+					/* No more leaves to search */
+					btrfs_free_path(path);
+					return 0;
+				}
+				leaf = path->nodes[0];
+			} while (!leaf);
 			continue;
 		}
 		btrfs_item_key_to_cpu(leaf, &found_key, path->slots[0]);
@@ -379,8 +434,8 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 
 	leaf = path->nodes[0];
 	while (!leaf) {
-		ret = btrfs_next_leaf(root, path);
-		if (ret < 0 && ret != -EIO) {
+		ret = next_leaf(root, path);
+		if (ret < 0) {
 			fprintf(stderr, "Error getting next leaf %d\n",
 				ret);
 			btrfs_free_path(path);
@@ -389,8 +444,6 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 			/* No more leaves to search */
 			btrfs_free_path(path);
 			return 0;
-		} else if (ret == -EIO) {
-			continue;
 		}
 		leaf = path->nodes[0];
 	}
@@ -405,8 +458,8 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 
 		if (path->slots[0] >= btrfs_header_nritems(leaf)) {
 			do {
-				ret = btrfs_next_leaf(root, path);
-				if (ret < 0 && ret != -EIO) {
+				ret = next_leaf(root, path);
+				if (ret < 0) {
 					fprintf(stderr, "Error searching %d\n",
 						ret);
 					btrfs_free_path(path);
@@ -415,11 +468,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 					/* No more leaves to search */
 					btrfs_free_path(path);
 					return 0;
-				} else if (ret == -EIO) {
-					leaf = NULL;
-					continue;
 				}
-
 				leaf = path->nodes[0];
 			} while (!leaf);
 			continue;
