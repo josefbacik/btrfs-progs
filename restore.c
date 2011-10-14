@@ -511,7 +511,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				printf("Restoring %s\n", path_name);
 
 			errno = 0;
-			ret = mkdir(path_name, 0644);
+			ret = mkdir(path_name, 0755);
 			if (ret && errno != EEXIST) {
 				free(dir);
 				fprintf(stderr, "Error mkdiring %s: %d\n",
