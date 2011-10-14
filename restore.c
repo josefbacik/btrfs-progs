@@ -378,7 +378,24 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 	}
 
 	leaf = path->nodes[0];
-	while (1) {
+	while (!leaf) {
+		ret = btrfs_next_leaf(root, path);
+		if (ret < 0 && ret != -EIO) {
+			fprintf(stderr, "Error getting next leaf %d\n",
+				ret);
+			btrfs_free_path(path);
+			return ret;
+		} else if (ret > 0) {
+			/* No more leaves to search */
+			btrfs_free_path(path);
+			return 0;
+		} else if (ret == -EIO) {
+			continue;
+		}
+		leaf = path->nodes[0];
+	}
+
+	while (leaf) {
 		if (loops++ >= 1024) {
 			printf("We have looped trying to restore files in %s "
 			       "too many times to be making progress, "
@@ -387,17 +404,24 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 		}
 
 		if (path->slots[0] >= btrfs_header_nritems(leaf)) {
-			ret = btrfs_next_leaf(root, path);
-			if (ret < 0) {
-				fprintf(stderr, "Error searching %d\n", ret);
-				btrfs_free_path(path);
-				return ret;
-			} else if (ret) {
-				/* No more leaves to search */
-				ret = 0;
-				break;
-			}
-			leaf = path->nodes[0];
+			do {
+				ret = btrfs_next_leaf(root, path);
+				if (ret < 0 && ret != -EIO) {
+					fprintf(stderr, "Error searching %d\n",
+						ret);
+					btrfs_free_path(path);
+					return ret;
+				} else if (ret > 1) {
+					/* No more leaves to search */
+					btrfs_free_path(path);
+					return 0;
+				} else if (ret == -EIO) {
+					leaf = NULL;
+					continue;
+				}
+
+				leaf = path->nodes[0];
+			} while (!leaf);
 			continue;
 		}
 		btrfs_item_key_to_cpu(leaf, &found_key, path->slots[0]);
