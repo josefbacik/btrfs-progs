@@ -397,6 +397,7 @@ int main(int argc, char **argv)
 	if (!root)
 		exit(1);
 
+	printf("Max xattr size is %d\n", BTRFS_MAX_XATTR_SIZE(root));
 	csum_size = btrfs_super_csum_size(&root->fs_info->super_copy);
 	ret = find_root(root);
 	close_ctree(root);
