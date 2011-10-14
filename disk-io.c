@@ -211,7 +211,10 @@ struct extent_buffer *read_tree_block(struct btrfs_root *root, u64 bytenr,
 	while (1) {
 		ret = btrfs_map_block(&root->fs_info->mapping_tree, READ,
 				      eb->start, &length, &multi, mirror_num);
-		BUG_ON(ret);
+		if (ret) {
+			printk("Couldn't map the block %Lu\n", bytenr);
+			break;
+		}
 		device = multi->stripes[0].dev;
 		eb->fd = device->fd;
 		device->total_ios++;

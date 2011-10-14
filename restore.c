@@ -464,7 +464,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 						ret);
 					btrfs_free_path(path);
 					return ret;
-				} else if (ret > 1) {
+				} else if (ret > 0) {
 					/* No more leaves to search */
 					btrfs_free_path(path);
 					return 0;

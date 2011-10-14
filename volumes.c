@@ -967,7 +967,8 @@ again:
 	}
 
 	ce = find_first_cache_extent(&map_tree->cache_tree, logical);
-	BUG_ON(!ce);
+	if (!ce)
+		return -ENOENT;
 	BUG_ON(ce->start > logical || ce->start + ce->size < logical);
 	map = container_of(ce, struct map_lookup, ce);
 	offset = logical - ce->start;
