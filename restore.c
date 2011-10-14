@@ -416,31 +416,31 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 
 		snprintf(path_name, 4096, "%s/%s", dir, filename);
 
-		if (!overwrite) {
-			static int warn = 0;
-			struct stat st;
-
-			ret = stat(path_name, &st);
-			if (!ret) {
-				loops = 0;
-				if (verbose || !warn)
-					printf("Skipping existing file %s\n",
-					       path_name);
-				if (warn)
-					goto next;
-				printf("If you wish to overwrite use the -o "
-				       "option to overwrite\n");
-				warn = 1;
-				goto next;
-			}
-			ret = 0;
-		}
 
 		/*
 		 * At this point we're only going to restore directories and
 		 * files, no symlinks or anything else.
 		 */
 		if (type == BTRFS_FT_REG_FILE) {
+			if (!overwrite) {
+				static int warn = 0;
+				struct stat st;
+
+				ret = stat(path_name, &st);
+				if (!ret) {
+					loops = 0;
+					if (verbose || !warn)
+						printf("Skipping existing file"
+						       " %s\n", path_name);
+					if (warn)
+						goto next;
+					printf("If you wish to overwrite use "
+					       "the -o option to overwrite\n");
+					warn = 1;
+					goto next;
+				}
+				ret = 0;
+			}
 			if (verbose)
 				printf("Restoring %s\n", path_name);
 			fd = open(path_name, O_CREAT|O_WRONLY, 0644);
