@@ -423,11 +423,13 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 			ret = stat(path_name, &st);
 			if (!ret) {
 				loops = 0;
+				if (verbose || !warn)
+					printf("Skipping existing file %s\n",
+					       path_name);
 				if (warn)
 					continue;
-				printf("Skipping exising file on target volume"
-				       " %s.  If you wish to overwrite use the"
-				       " -o option to overwrite\n", path_name);
+				printf("If you wish to overwrite use the -o "
+				       "option to overwrite\n");
 				warn = 1;
 				goto next;
 			}
