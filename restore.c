@@ -422,6 +422,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 
 			ret = stat(path_name, &st);
 			if (!ret) {
+				loops = 0;
 				if (warn)
 					continue;
 				printf("Skipping exising file on target volume"
@@ -430,7 +431,6 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 				warn = 1;
 				goto next;
 			}
-			loops = 0;
 			ret = 0;
 		}
 
