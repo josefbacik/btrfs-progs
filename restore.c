@@ -427,7 +427,7 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 					printf("Skipping existing file %s\n",
 					       path_name);
 				if (warn)
-					continue;
+					goto next;
 				printf("If you wish to overwrite use the -o "
 				       "option to overwrite\n");
 				warn = 1;
