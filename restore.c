@@ -335,6 +335,21 @@ static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key,
 	}
 
 	leaf = path->nodes[0];
+	while (!leaf) {
+		ret = next_leaf(root, path);
+		if (ret < 0) {
+			fprintf(stderr, "Error getting next leaf %d\n",
+				ret);
+			btrfs_free_path(path);
+			return ret;
+		} else if (ret > 0) {
+			/* No more leaves to search */
+			btrfs_free_path(path);
+			return 0;
+		}
+		leaf = path->nodes[0];
+	}
+
 	while (1) {
 		if (loops++ >= 1024) {
 			ret = ask_to_continue(file);
