@@ -655,13 +655,13 @@ static void usage()
 		"<directory>\n");
 }
 
-static struct btrfs_root *open_fs(const char *dev, u64 root_location)
+static struct btrfs_root *open_fs(const char *dev, u64 root_location, int super_mirror)
 {
 	struct btrfs_root *root;
 	u64 bytenr;
 	int i;
 
-	for (i = 0; i < BTRFS_SUPER_MIRROR_MAX; i++) {
+	for (i = super_mirror; i < BTRFS_SUPER_MIRROR_MAX; i++) {
 		bytenr = btrfs_sb_offset(i);
 		root = open_ctree_recovery(dev, bytenr, root_location);
 		if (root)
@@ -681,8 +681,9 @@ int main(int argc, char **argv)
 	int len;
 	int ret;
 	int opt;
+	int super_mirror = 0;
 
-	while ((opt = getopt(argc, argv, "sviot:")) != -1) {
+	while ((opt = getopt(argc, argv, "sviot:u:")) != -1) {
 		switch (opt) {
 			case 's':
 				get_snaps = 1;
@@ -704,6 +705,15 @@ int main(int argc, char **argv)
 					exit(1);
 				}
 				break;
+			case 'u':
+				errno = 0;
+				super_mirror = (int)strtol(optarg, NULL, 10);
+				if (errno != 0 ||
+				    super_mirror >= BTRFS_SUPER_MIRROR_MAX) {
+					fprintf(stderr, "Super mirror not "
+						"valid\n");
+					exit(1);
+				}
 			default:
 				usage();
 				exit(1);
@@ -724,7 +734,7 @@ int main(int argc, char **argv)
 		return -EBUSY;
 	}
 
-	root = open_fs(argv[optind], tree_location);
+	root = open_fs(argv[optind], tree_location, super_mirror);
 	if (root == NULL)
 		return 1;
 
