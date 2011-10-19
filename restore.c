@@ -632,6 +632,8 @@ next:
 		path->slots[0]++;
 	}
 
+	if (verbose)
+		printf("Done searching %s\n", dir);
 	btrfs_free_path(path);
 	return 0;
 }
