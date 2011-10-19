@@ -449,6 +449,9 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 
 	leaf = path->nodes[0];
 	while (!leaf) {
+		if (verbose > 1)
+			printf("No leaf after search, looking for the next "
+			       "leaf\n");
 		ret = next_leaf(root, path);
 		if (ret < 0) {
 			fprintf(stderr, "Error getting next leaf %d\n",
@@ -496,10 +499,18 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 			continue;
 		}
 		btrfs_item_key_to_cpu(leaf, &found_key, path->slots[0]);
-		if (found_key.objectid != key->objectid)
+		if (found_key.objectid != key->objectid) {
+			if (verbose > 1)
+				printf("Found objectid=%Lu, key=%Lu\n",
+				       found_key.objectid, key->objectid);
 			break;
-		if (found_key.type != key->type)
+		}
+		if (found_key.type != key->type) {
+			if (verbose > 1)
+				printf("Found type=%u, want=%u\n",
+				       found_key.type, key->type);
 			break;
+		}
 		dir_item = btrfs_item_ptr(leaf, path->slots[0],
 					  struct btrfs_dir_item);
 		name_ptr = (unsigned long)(dir_item + 1);
