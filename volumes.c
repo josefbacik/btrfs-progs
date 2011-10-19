@@ -969,7 +969,11 @@ again:
 	ce = find_first_cache_extent(&map_tree->cache_tree, logical);
 	if (!ce)
 		return -ENOENT;
-	BUG_ON(ce->start > logical || ce->start + ce->size < logical);
+	if (ce->start > logical || ce->start + ce->size < logical) {
+		printk("Found weird extent, start=%Lu, size=%Lu, wanted=%Lu\n",
+		       ce->start, ce->size, logical);
+		return -ENOENT;
+	}
 	map = container_of(ce, struct map_lookup, ce);
 	offset = logical - ce->start;
 
