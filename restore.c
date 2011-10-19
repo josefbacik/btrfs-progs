@@ -81,6 +81,9 @@ int next_leaf(struct btrfs_root *root, struct btrfs_path *path)
 			break;
 	}
 
+	if (level == BTRFS_MAX_LEVEL)
+		return 1;
+
 	slot = path->slots[level] + 1;
 
 	while(level < BTRFS_MAX_LEVEL) {
