@@ -329,12 +329,18 @@ static int find_root(struct btrfs_root *root)
 
 	while (1) {
 		u64 map_length = iobuf_size;
+		u64 type;
 
 		if (offset > btrfs_super_root(&root->fs_info->super_copy))
 			break;
 
-		err = btrfs_map_block(&root->fs_info->mapping_tree, READ,
-				      offset, &map_length, &multi, 0);
+		err = __btrfs_map_block(&root->fs_info->mapping_tree, READ,
+				      offset, &map_length, &type, &multi, 0);
+		if (!(type & BTRFS_BLOCK_GROUP_METADATA)) {
+			offset += map_length;
+			continue;
+		}
+
 		if (err) {
 			fprintf(stderr, "Failed to map block %zu, %d\n",
 				offset, err);

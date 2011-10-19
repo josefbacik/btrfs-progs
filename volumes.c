@@ -944,6 +944,14 @@ int btrfs_map_block(struct btrfs_mapping_tree *map_tree, int rw,
 		    u64 logical, u64 *length,
 		    struct btrfs_multi_bio **multi_ret, int mirror_num)
 {
+	return __btrfs_map_block(map_tree, rw, logical, length, NULL,
+				 multi_ret, mirror_num);
+}
+
+int __btrfs_map_block(struct btrfs_mapping_tree *map_tree, int rw,
+		    u64 logical, u64 *length, u64 *type,
+		    struct btrfs_multi_bio **multi_ret, int mirror_num)
+{
 	struct cache_extent *ce;
 	struct map_lookup *map;
 	u64 offset;
@@ -1065,6 +1073,8 @@ again:
 		stripe_index++;
 	}
 	*multi_ret = multi;
+	if (type)
+		*type = map->type;
 out:
 	return 0;
 }
