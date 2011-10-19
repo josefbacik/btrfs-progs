@@ -714,6 +714,7 @@ int main(int argc, char **argv)
 						"valid\n");
 					exit(1);
 				}
+				break;
 			default:
 				usage();
 				exit(1);
@@ -730,7 +731,7 @@ int main(int argc, char **argv)
 			strerror(ret));
 		return ret;
 	} else if (ret) {
-		fprintf(stderr, "%s is currently mounted.  Aborting.\n", argv[1]);
+		fprintf(stderr, "%s is currently mounted.  Aborting.\n", argv[optind + 1]);
 		return -EBUSY;
 	}
 
