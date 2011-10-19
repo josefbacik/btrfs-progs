@@ -685,8 +685,9 @@ int main(int argc, char **argv)
 	int ret;
 	int opt;
 	int super_mirror = 0;
+	int find_first_dir = 0;
 
-	while ((opt = getopt(argc, argv, "sviot:u:")) != -1) {
+	while ((opt = getopt(argc, argv, "sviot:u:d")) != -1) {
 		switch (opt) {
 			case 's':
 				get_snaps = 1;
@@ -717,6 +718,9 @@ int main(int argc, char **argv)
 						"valid\n");
 					exit(1);
 				}
+				break;
+			case 'd':
+				find_first_dir = 1;
 				break;
 			default:
 				usage();
@@ -754,10 +758,51 @@ int main(int argc, char **argv)
 		dir_name[len - 1] = '\0';
 	}
 
-	key.objectid = BTRFS_FIRST_FREE_OBJECTID;
+	if (find_first_dir) {
+		struct btrfs_path *path;
+		struct btrfs_key found_key;
+		key.objectid = 0;
+		key.type = BTRFS_DIR_INDEX_KEY;
+		key.offset = 0;
+
+		path = btrfs_alloc_path();
+		if (!path) {
+			fprintf(stderr, "Ran out of memory\n");
+			goto out;
+		}
+
+		ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
+		if (ret < 0) {
+			fprintf(stderr, "Error searching %d\n", ret);
+			btrfs_free_path(path);
+			goto out;
+		}
+
+		if (!path->nodes[0]) {
+			fprintf(stderr, "No leaf!\n");
+			btrfs_free_path(path);
+			goto out;
+		}
+
+		btrfs_item_key_to_cpu(path->nodes[0], &found_key,
+				      path->slots[0]);
+		if (found_key.type != key.type) {
+			fprintf(stderr, "Couldn't find dir index item\n");
+			btrfs_free_path(path);
+			goto out;
+		}
+
+		printf("Using objectid %Lu for first dir\n",
+		       found_key.objectid);
+		key.objectid = found_key.objectid;
+		btrfs_free_path(path);
+	} else {
+		key.objectid = BTRFS_FIRST_FREE_OBJECTID;
+	}
 
 	ret = search_dir(root->fs_info->fs_root, &key, dir_name);
 
+out:
 	close_ctree(root);
 	return ret;
 }
