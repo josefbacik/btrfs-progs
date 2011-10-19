@@ -457,6 +457,9 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 			return ret;
 		} else if (ret > 0) {
 			/* No more leaves to search */
+			if (verbose)
+				printf("Reached the end of the tree looking "
+				       "for the directory\n");
 			btrfs_free_path(path);
 			return 0;
 		}
@@ -481,6 +484,10 @@ static int search_dir(struct btrfs_root *root, struct btrfs_key *key,
 					return ret;
 				} else if (ret > 0) {
 					/* No more leaves to search */
+					if (verbose)
+						printf("Reached the end of "
+						       "the tree searching the"
+						       " directory\n");
 					btrfs_free_path(path);
 					return 0;
 				}
