@@ -728,6 +728,7 @@ int main(int argc, char **argv)
 	struct btrfs_key key;
 	char dir_name[128];
 	u64 tree_location = 0;
+	u64 fs_location = 0;
 	int len;
 	int ret;
 	int opt;
@@ -753,6 +754,14 @@ int main(int argc, char **argv)
 				tree_location = (u64)strtoll(optarg, NULL, 10);
 				if (errno != 0) {
 					fprintf(stderr, "Tree location not valid\n");
+					exit(1);
+				}
+				break;
+			case 'f':
+				errno = 0;
+				fs_location = (u64)strtoll(optarg, NULL, 10);
+				if (errno != 0) {
+					fprintf(stderr, "Fs location not valid\n");
 					exit(1);
 				}
 				break;
@@ -792,6 +801,15 @@ int main(int argc, char **argv)
 	root = open_fs(argv[optind], tree_location, super_mirror);
 	if (root == NULL)
 		return 1;
+
+	if (fs_location != 0) {
+		free_extent_buffer(root->node);
+		root->node = read_tree_block(root, fs_location, 4096, 0);
+		if (!root->node) {
+			fprintf(stderr, "Failed to read fs location\n");
+			goto out;
+		}
+	}
 
 	printf("Root objectid is %Lu\n", root->objectid);
 
