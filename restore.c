@@ -703,7 +703,7 @@ static int find_first_dir(struct btrfs_root *root, u64 *objectid)
 		fprintf(stderr, "No leaf!\n");
 		goto out;
 	}
-
+again:
 	for (i = path->slots[0];
 	     i < btrfs_header_nritems(path->nodes[0]); i++) {
 		btrfs_item_key_to_cpu(path->nodes[0], &found_key, i);
@@ -716,8 +716,20 @@ static int find_first_dir(struct btrfs_root *root, u64 *objectid)
 		ret = 0;
 		goto out;
 	}
+	do {
+		ret = next_leaf(root, path);
+		if (ret < 0) {
+			fprintf(stderr, "Error getting next leaf %d\n",
+				ret);
+			goto out;
+		} else if (ret > 0) {
+			fprintf(stderr, "No more leaves\n");
+			goto out;
+		}
+	} while (!path->nodes[0]);
+	if (path->nodes[0])
+		goto again;
 	printf("Couldn't find a dir index item\n");
-	btrfs_print_leaf(root, path->nodes[0]);
 out:
 	btrfs_free_path(path);
 	return ret;
