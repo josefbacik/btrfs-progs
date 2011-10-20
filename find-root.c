@@ -37,6 +37,7 @@
 
 static int verbose = 0;
 static u16 csum_size = 0;
+static u64 search_objectid = BTRFS_ROOT_TREE_OBJECTID;
 
 static void usage()
 {
@@ -261,7 +262,7 @@ static int search_iobuf(struct btrfs_root *root, void *iobuf,
 			size_t iobuf_size, off_t offset)
 {
 	u64 gen = btrfs_super_generation(&root->fs_info->super_copy);
-	u64 objectid = BTRFS_ROOT_TREE_OBJECTID;
+	u64 objectid = search_objectid;
 	u32 size = btrfs_super_nodesize(&root->fs_info->super_copy);
 	u8 level = root->fs_info->super_copy.root_level;
 	size_t block_off = 0;
@@ -413,10 +414,20 @@ int main(int argc, char **argv)
 	int opt;
 	int ret;
 
-	while ((opt = getopt(argc, argv, "v")) != -1) {
+	while ((opt = getopt(argc, argv, "vo:")) != -1) {
 		switch(opt) {
 			case 'v':
 				verbose++;
+				break;
+			case 'o':
+				errno = 0;
+				search_objectid = (u64)strtoll(optarg, NULL,
+							       10);
+				if (errno) {
+					fprintf(stderr, "Error parsing "
+						"objectid\n");
+					exit(1);
+				}
 				break;
 			default:
 				usage();

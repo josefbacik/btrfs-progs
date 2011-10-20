@@ -901,7 +901,6 @@ int btrfs_next_metadata(struct btrfs_mapping_tree *map_tree, u64 *logical,
 		if (map->type & BTRFS_BLOCK_GROUP_METADATA) {
 			*logical = ce->start;
 			*size = ce->size;
-			printk("start is %Lu, size is %Lu\n", ce->start, ce->size);
 			return 0;
 		}
 	}
