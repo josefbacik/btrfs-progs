@@ -18,7 +18,7 @@ LIBS=-luuid
 RESTORE_LIBS=-lz
 
 progs = btrfsctl mkfs.btrfs btrfs-debug-tree btrfs-show btrfs-vol btrfsck \
-	btrfs btrfs-map-logical repair restore find-root
+	btrfs btrfs-map-logical repair restore find-root calc-size
 
 # make C=1 to enable sparse
 ifdef C
@@ -36,6 +36,9 @@ all: version $(progs) manpages
 
 version:
 	bash version.sh
+
+calc-size: $(objects) calc-size.o
+	gcc $(CFLAGS) -o calc-size calc-size.o $(objects) $(LDFLAGS) $(LIBS)
 
 find-root: $(objects) find-root.o
 	gcc $(CFLAGS) -o find-root find-root.o $(objects) $(LDFLAGS) $(LIBS)
