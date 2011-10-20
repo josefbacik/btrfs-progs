@@ -304,15 +304,42 @@ next:
 	return 1;
 }
 
+static int read_physical(struct btrfs_root *root, int fd, u64 offset, u64 len)
+{
+	char *iobuf = malloc(len);
+	ssize_t done;
+	size_t total_read = 0;
+	int ret = 1;
+
+	if (!iobuf) {
+		fprintf(stderr, "No memory\n");
+		return -1;
+	}
+
+	while (total_read < len) {
+		done = pread64(fd, iobuf + total_read, len - total_read,
+			       offset + total_read);
+		if (done < 0) {
+			fprintf(stderr, "Failed to read: %s\n",
+				strerror(errno));
+			ret = -1;
+			goto out;
+		}
+		total_read += done;
+	}
+
+	ret = search_iobuf(root, iobuf, total_read, offset);
+out:
+	free(iobuf);
+	return ret;
+}
+
 static int find_root(struct btrfs_root *root)
 {
-	char *iobuf;
 	struct btrfs_multi_bio *multi = NULL;
 	struct btrfs_device *device;
-	size_t iobuf_size = 4096;
 	off_t offset = 0;
 	off_t bytenr;
-	ssize_t done;
 	int fd;
 	int err;
 	int ret = 1;
@@ -321,14 +348,8 @@ static int find_root(struct btrfs_root *root)
 	       btrfs_super_root(&root->fs_info->super_copy),
 	       btrfs_super_chunk_root(&root->fs_info->super_copy));
 
-	iobuf = malloc(iobuf_size);
-	if (!iobuf) {
-		fprintf(stderr, "No memory\n");
-		return 1;
-	}
-
 	while (1) {
-		u64 map_length = iobuf_size;
+		u64 map_length = 4096;
 		u64 type;
 
 		if (offset > btrfs_super_root(&root->fs_info->super_copy))
@@ -342,30 +363,24 @@ static int find_root(struct btrfs_root *root)
 		}
 
 		if (err) {
-			fprintf(stderr, "Failed to map block %zu, %d\n",
-				offset, err);
-			break;
+			offset += map_length;
+			continue;
 		}
 		device = multi->stripes[0].dev;
 		fd = device->fd;
 		bytenr = multi->stripes[0].physical;
 		kfree(multi);
 
-		done = pread64(fd, iobuf, iobuf_size, bytenr);
-		if (done < 0) {
-			fprintf(stderr, "Failed to do read, %s\n",
-				strerror(errno));
-			break;
-		}
-		BUG_ON(done != iobuf_size);
-
-		if (!search_iobuf(root, iobuf, done, offset)) {
+		err = read_physical(root, fd, bytenr, map_length);
+		if (!err) {
 			ret = 0;
 			break;
+		} else if (err < 0) {
+			ret = err;
+			break;
 		}
-		offset += done;
+		offset += map_length;
 	}
-	free(iobuf);
 	return ret;
 }
 
@@ -403,7 +418,6 @@ int main(int argc, char **argv)
 	if (!root)
 		exit(1);
 
-	printf("Max xattr size is %d\n", BTRFS_MAX_XATTR_SIZE(root));
 	csum_size = btrfs_super_csum_size(&root->fs_info->super_copy);
 	ret = find_root(root);
 	close_ctree(root);
