@@ -788,6 +788,7 @@ int main(int argc, char **argv)
 				      path->slots[0]);
 		if (found_key.type != key.type) {
 			fprintf(stderr, "Couldn't find dir index item\n");
+			btrfs_print_leaf(root, path->nodes[0]);
 			btrfs_free_path(path);
 			goto out;
 		}

@@ -357,15 +357,16 @@ static int find_root(struct btrfs_root *root)
 
 		err = __btrfs_map_block(&root->fs_info->mapping_tree, READ,
 				      offset, &map_length, &type, &multi, 0);
+		if (err) {
+			offset += map_length;
+			continue;
+		}
+
 		if (!(type & BTRFS_BLOCK_GROUP_METADATA)) {
 			offset += map_length;
 			continue;
 		}
 
-		if (err) {
-			offset += map_length;
-			continue;
-		}
 		device = multi->stripes[0].dev;
 		fd = device->fd;
 		bytenr = multi->stripes[0].physical;
