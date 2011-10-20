@@ -735,7 +735,7 @@ int main(int argc, char **argv)
 	int super_mirror = 0;
 	int find_dir = 0;
 
-	while ((opt = getopt(argc, argv, "sviot:u:d")) != -1) {
+	while ((opt = getopt(argc, argv, "sviot:u:df:")) != -1) {
 		switch (opt) {
 			case 's':
 				get_snaps = 1;
