@@ -717,6 +717,7 @@ static int find_first_dir(struct btrfs_root *root, u64 *objectid)
 		goto out;
 	}
 	printf("Couldn't find a dir index item\n");
+	btrfs_print_leaf(root, path->nodes[0]);
 out:
 	btrfs_free_path(path);
 	return ret;
