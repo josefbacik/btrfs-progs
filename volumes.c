@@ -967,20 +967,23 @@ int __btrfs_map_block(struct btrfs_mapping_tree *map_tree, int rw,
 		stripes_allocated = 1;
 	}
 again:
+	ce = find_first_cache_extent(&map_tree->cache_tree, logical);
+	if (!ce) {
+		if (multi)
+			kfree(multi);
+		return -ENOENT;
+	}
+	if (ce->start > logical || ce->start + ce->size < logical) {
+		if (multi)
+			kfree(multi);
+		return -ENOENT;
+	}
+
 	if (multi_ret) {
 		multi = kzalloc(btrfs_multi_bio_size(stripes_allocated),
 				GFP_NOFS);
 		if (!multi)
 			return -ENOMEM;
-	}
-
-	ce = find_first_cache_extent(&map_tree->cache_tree, logical);
-	if (!ce)
-		return -ENOENT;
-	if (ce->start > logical || ce->start + ce->size < logical) {
-		printk("Found weird extent, start=%Lu, size=%Lu, wanted=%Lu\n",
-		       ce->start, ce->size, logical);
-		return -ENOENT;
 	}
 	map = container_of(ce, struct map_lookup, ce);
 	offset = logical - ce->start;
