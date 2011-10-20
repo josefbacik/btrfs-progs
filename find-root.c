@@ -271,6 +271,7 @@ static int search_iobuf(struct btrfs_root *root, void *iobuf,
 		struct btrfs_header *header = block;
 		u64 h_byte, h_level, h_gen, h_owner;
 
+//		printf("searching %Lu\n", offset + block_off);
 		h_byte = le64_to_cpu(header->bytenr);
 		h_owner = le64_to_cpu(header->owner);
 		h_level = header->level;
@@ -304,7 +305,8 @@ next:
 	return 1;
 }
 
-static int read_physical(struct btrfs_root *root, int fd, u64 offset, u64 len)
+static int read_physical(struct btrfs_root *root, int fd, u64 offset,
+			 u64 bytenr, u64 len)
 {
 	char *iobuf = malloc(len);
 	ssize_t done;
@@ -318,7 +320,7 @@ static int read_physical(struct btrfs_root *root, int fd, u64 offset, u64 len)
 
 	while (total_read < len) {
 		done = pread64(fd, iobuf + total_read, len - total_read,
-			       offset + total_read);
+			       bytenr + total_read);
 		if (done < 0) {
 			fprintf(stderr, "Failed to read: %s\n",
 				strerror(errno));
@@ -338,6 +340,7 @@ static int find_root(struct btrfs_root *root)
 {
 	struct btrfs_multi_bio *multi = NULL;
 	struct btrfs_device *device;
+	u64 metadata_offset = 0, metadata_size = 0;
 	off_t offset = 0;
 	off_t bytenr;
 	int fd;
@@ -348,13 +351,31 @@ static int find_root(struct btrfs_root *root)
 	       btrfs_super_root(&root->fs_info->super_copy),
 	       btrfs_super_chunk_root(&root->fs_info->super_copy));
 
+	err = btrfs_next_metadata(&root->fs_info->mapping_tree,
+				  &metadata_offset, &metadata_size);
+	if (err)
+		return ret;
+
+	offset = metadata_offset;
 	while (1) {
 		u64 map_length = 4096;
 		u64 type;
 
-		if (offset > btrfs_super_root(&root->fs_info->super_copy))
+		if (offset >
+		    btrfs_super_total_bytes(&root->fs_info->super_copy)) {
+			printf("Went past the fs size, exiting");
 			break;
-
+		}
+		if (offset >= (metadata_offset + metadata_size)) {
+			err = btrfs_next_metadata(&root->fs_info->mapping_tree,
+						  &metadata_offset,
+						  &metadata_size);
+			if (err) {
+				printf("No more metdata to scan, exiting\n");
+				break;
+			}
+			offset = metadata_offset;
+		}
 		err = __btrfs_map_block(&root->fs_info->mapping_tree, READ,
 				      offset, &map_length, &type, &multi, 0);
 		if (err) {
@@ -372,7 +393,7 @@ static int find_root(struct btrfs_root *root)
 		bytenr = multi->stripes[0].physical;
 		kfree(multi);
 
-		err = read_physical(root, fd, bytenr, map_length);
+		err = read_physical(root, fd, offset, bytenr, map_length);
 		if (!err) {
 			ret = 0;
 			break;

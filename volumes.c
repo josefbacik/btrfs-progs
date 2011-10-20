@@ -884,6 +884,31 @@ int btrfs_num_copies(struct btrfs_mapping_tree *map_tree, u64 logical, u64 len)
 	return ret;
 }
 
+int btrfs_next_metadata(struct btrfs_mapping_tree *map_tree, u64 *logical,
+			u64 *size)
+{
+	struct cache_extent *ce;
+	struct map_lookup *map;
+
+	ce = find_first_cache_extent(&map_tree->cache_tree, *logical);
+
+	while (ce) {
+		ce = next_cache_extent(ce);
+		if (!ce)
+			return -ENOENT;
+
+		map = container_of(ce, struct map_lookup, ce);
+		if (map->type & BTRFS_BLOCK_GROUP_METADATA) {
+			*logical = ce->start;
+			*size = ce->size;
+			printk("start is %Lu, size is %Lu\n", ce->start, ce->size);
+			return 0;
+		}
+	}
+
+	return -ENOENT;
+}
+
 int btrfs_rmap_block(struct btrfs_mapping_tree *map_tree,
 		     u64 chunk_start, u64 physical, u64 devid,
 		     u64 **logical, int *naddrs, int *stripe_len)
