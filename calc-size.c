@@ -213,6 +213,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
+	/*
 	if ((ret = check_mounted(argv[optind])) < 0) {
 		fprintf(stderr, "Could not check mount status: %d\n", ret);
 		if (ret == -EACCES)
@@ -223,6 +224,7 @@ int main(int argc, char **argv)
 			argv[optind]);
 		return -EBUSY;
 	}
+	*/
 
 	root = open_ctree(argv[optind], 0, 0);
 	if (!root) {
