@@ -871,7 +871,7 @@ struct btrfs_root *open_ctree_recovery(const char *filename, u64 sb_bytenr,
 		fprintf (stderr, "Could not open %s\n", filename);
 		return NULL;
 	}
-	root = __open_ctree_fd(fp, filename, sb_bytenr, root_tree_bytenr, 0);
+	root = __open_ctree_fd(fp, filename, sb_bytenr, root_tree_bytenr, 0, 0);
 	close(fp);
 
 	return root;
