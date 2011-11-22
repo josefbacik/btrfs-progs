@@ -3,12 +3,16 @@
 version.h
 man/*.gz
 btrfs
+btrfs-corrupt-block
 btrfs-debug-tree
+btrfs-dump-super
 btrfs-map-logical
+btrfs-select-super
 btrfs-show
 btrfs-vol
 btrfsck
 btrfsctl
+calc-size
 find-root
 mkfs.btrfs
 repair
