@@ -580,7 +580,7 @@ struct btrfs_root *btrfs_read_fs_root(struct btrfs_fs_info *fs_info,
 		return fs_info->dev_root;
 	if (location->objectid == BTRFS_CSUM_TREE_OBJECTID)
 		return fs_info->csum_root;
-	
+
 	BUG_ON(location->objectid == BTRFS_TREE_RELOC_OBJECTID ||
 	       location->offset != (u64)-1);
 
@@ -602,7 +602,8 @@ struct btrfs_root *btrfs_read_fs_root(struct btrfs_fs_info *fs_info,
 }
 
 struct btrfs_root *__open_ctree_fd(int fp, const char *path, u64 sb_bytenr,
-				   u64 root_tree_bytenr, int writes)
+				   u64 root_tree_bytenr, int writes,
+				   int use_earliest_bdev)
 {
 	u32 sectorsize;
 	u32 nodesize;
@@ -677,8 +678,14 @@ struct btrfs_root *__open_ctree_fd(int fp, const char *path, u64 sb_bytenr,
 
 	fs_info->super_bytenr = sb_bytenr;
 	disk_super = &fs_info->super_copy;
-	ret = btrfs_read_dev_super(fs_devices->latest_bdev,
-				   disk_super, sb_bytenr);
+	if (use_earliest_bdev) {
+		ret = btrfs_read_dev_super(fs_devices->earliest_bdev,
+					   disk_super, sb_bytenr);
+	} else {
+		ret = btrfs_read_dev_super(fs_devices->latest_bdev,
+					   disk_super, sb_bytenr);
+	}
+
 	if (ret) {
 		printk("No valid btrfs found\n");
 		goto out_devices;
@@ -847,7 +854,7 @@ struct btrfs_root *open_ctree(const char *filename, u64 sb_bytenr, int writes)
 		fprintf (stderr, "Could not open %s\n", filename);
 		return NULL;
 	}
-	root = __open_ctree_fd(fp, filename, sb_bytenr, 0, writes);
+	root = __open_ctree_fd(fp, filename, sb_bytenr, 0, writes, 0);
 	close(fp);
 
 	return root;
@@ -871,9 +878,9 @@ struct btrfs_root *open_ctree_recovery(const char *filename, u64 sb_bytenr,
 }
 
 struct btrfs_root *open_ctree_fd(int fp, const char *path, u64 sb_bytenr,
-				 int writes)
+				 int writes, int use_earliest_bdev)
 {
-	return __open_ctree_fd(fp, path, sb_bytenr, 0, writes);
+	return __open_ctree_fd(fp, path, sb_bytenr, 0, writes, use_earliest_bdev);
 }
 
 int btrfs_read_dev_super(int fd, struct btrfs_super_block *sb, u64 sb_bytenr)
