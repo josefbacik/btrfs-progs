@@ -361,6 +361,8 @@ static int find_root(struct btrfs_root *root)
 	while (1) {
 		u64 map_length = 4096;
 		u64 type;
+		int mirror_num;
+		int num_copies;
 
 		if (offset >
 		    btrfs_super_total_bytes(&root->fs_info->super_copy)) {
@@ -377,8 +379,10 @@ static int find_root(struct btrfs_root *root)
 			}
 			offset = metadata_offset;
 		}
+		mirror_num = 1;
+	again:
 		err = __btrfs_map_block(&root->fs_info->mapping_tree, READ,
-				      offset, &map_length, &type, &multi, 0);
+				      offset, &map_length, &type, &multi, mirror_num);
 		if (err) {
 			offset += map_length;
 			continue;
@@ -396,9 +400,16 @@ static int find_root(struct btrfs_root *root)
 
 		err = read_physical(root, fd, offset, bytenr, map_length);
 		if (!err) {
+			/* Found the root. */
 			ret = 0;
 			break;
 		} else if (err < 0) {
+			num_copies = btrfs_num_copies(&root->fs_info->mapping_tree,
+						      offset, map_length);
+			mirror_num++;
+			if (mirror_num <= num_copies)
+				goto again;
+			/* Unrecoverable error in read. */
 			ret = err;
 			break;
 		}
