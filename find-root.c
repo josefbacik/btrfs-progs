@@ -258,8 +258,63 @@ out:
 	return NULL;
 }
 
+static int dump_root_bytenr(struct btrfs_root *root, u64 bytenr, u64 gen)
+{
+	struct btrfs_root *tmp = malloc(sizeof(struct btrfs_root));
+	struct btrfs_path *path;
+	struct btrfs_key key;
+	struct btrfs_root_item ri;
+	struct extent_buffer *leaf;
+	struct btrfs_disk_key disk_key;
+	struct btrfs_key found_key;
+	int slot;
+	int ret;
+
+	if (!tmp)
+		return -ENOMEM;
+
+	__setup_root(4096, 4096, 4096, 4096, tmp,
+		     root->fs_info, BTRFS_ROOT_TREE_OBJECTID);
+
+	tmp->node = read_tree_block(root, bytenr, 4096, gen);
+
+	key.objectid = 0;
+	key.type = BTRFS_ROOT_ITEM_KEY;
+	key.offset = -1;
+
+	path = btrfs_alloc_path();
+
+	/* Walk the slots of this root looking for BTRFS_ROOT_ITEM_KEYs. */
+	ret = btrfs_search_slot(NULL, tmp, &key, path, 0, 0);
+	BUG_ON(ret < 0);
+	while (1) {
+		leaf = path->nodes[0];
+		slot = path->slots[0];
+		if (slot >= btrfs_header_nritems(leaf)) {
+			ret = btrfs_next_leaf(tmp, path);
+			if (ret != 0)
+				break;
+			leaf = path->nodes[0];
+			slot = path->slots[0];
+		}
+		btrfs_item_key(leaf, &disk_key, path->slots[0]);
+		btrfs_disk_key_to_cpu(&found_key, &disk_key);
+		if (btrfs_key_type(&found_key) == BTRFS_ROOT_ITEM_KEY) {
+			unsigned long offset;
+
+			offset = btrfs_item_ptr_offset(leaf, slot);
+			read_extent_buffer(leaf, &ri, offset, sizeof(ri));
+			printf("Generation: %Lu Root bytenr: %Lu\n", gen, btrfs_root_bytenr(&ri));
+		}
+		path->slots[0]++;
+	}
+	btrfs_free_path(path);
+	free_extent_buffer(leaf);
+	return 0;
+}
+
 static int search_iobuf(struct btrfs_root *root, void *iobuf,
-			size_t iobuf_size, off_t offset)
+                        size_t iobuf_size, off_t offset)
 {
 	u64 gen = btrfs_super_generation(&root->fs_info->super_copy);
 	u64 objectid = search_objectid;
@@ -290,6 +345,9 @@ static int search_iobuf(struct btrfs_root *root, void *iobuf,
 				h_byte);
 			goto next;
 		}
+		/* Found some kind of root and it's fairly valid. */
+		if (dump_root_bytenr(root, h_byte, h_gen))
+		        break;
 		if (h_gen != gen) {
 			fprintf(stderr, "Well block %Lu seems great, "
 				"but generation doesn't match, "
