@@ -99,6 +99,8 @@ static int device_list_add(const char *path,
 		memcpy(fs_devices->fsid, disk_super->fsid, BTRFS_FSID_SIZE);
 		fs_devices->latest_devid = devid;
 		fs_devices->latest_trans = found_transid;
+		fs_devices->earliest_devid = devid;
+		fs_devices->earliest_trans = found_transid;
 		fs_devices->lowest_devid = (u64)-1;
 		device = NULL;
 	} else {
@@ -133,8 +135,11 @@ static int device_list_add(const char *path,
 	if (found_transid > fs_devices->latest_trans) {
 		fs_devices->latest_devid = devid;
 		fs_devices->latest_trans = found_transid;
+	} else if (found_transid < fs_devices->earliest_trans) {
+		fs_devices->earliest_devid = devid;
+		fs_devices->earliest_trans = found_transid;
 	}
-	if (fs_devices->lowest_devid > devid) {
+	if (devid < fs_devices->lowest_devid) {
 		fs_devices->lowest_devid = devid;
 	}
 	*fs_devices_ret = fs_devices;
@@ -183,6 +188,8 @@ int btrfs_open_devices(struct btrfs_fs_devices *fs_devices, int flags)
 
 		if (device->devid == fs_devices->latest_devid)
 			fs_devices->latest_bdev = fd;
+		if (device->devid == fs_devices->earliest_devid)
+			fs_devices->earliest_bdev = fd;
 		if (device->devid == fs_devices->lowest_devid)
 			fs_devices->lowest_bdev = fd;
 		device->fd = fd;

@@ -34,7 +34,9 @@
 
 static void print_usage(void)
 {
-	fprintf(stderr, "usage: btrfs-select-super -s number dev\n");
+	fprintf(stderr, "usage: btrfs-select-super [-c] [-e] -s number dev\n");
+	fprintf(stderr, "       -c Commit changes to disk [IRREVERSIBLE]\n");
+	fprintf(stderr, "       -e Use the earliest super found, may help recover transid verify problems\n");
 	fprintf(stderr, "%s\n", BTRFS_BUILD_VERSION);
 	exit(1);
 }
@@ -45,10 +47,13 @@ int main(int ac, char **av)
 	int ret;
 	int num;
 	u64 bytenr = 0;
+	int commit = 0;
+	int use_lowest_bdev = 0;
+	int fp;
 
 	while(1) {
 		int c;
-		c = getopt(ac, av, "s:");
+		c = getopt(ac, av, "s:ce");
 		if (c < 0)
 			break;
 		switch(c) {
@@ -57,6 +62,12 @@ int main(int ac, char **av)
 				bytenr = btrfs_sb_offset(num);
 				printf("using SB copy %d, bytenr %llu\n", num,
 				       (unsigned long long)bytenr);
+				break;
+			case 'c':
+				commit = 1;
+				break;
+			case 'e':
+				use_earliest_bdev = 1;
 				break;
 			default:
 				print_usage();
@@ -74,22 +85,33 @@ int main(int ac, char **av)
 
 	radix_tree_init();
 
-	if((ret = check_mounted(av[optind])) < 0) {
+	if ((ret = check_mounted(av[optind])) < 0) {
 		fprintf(stderr, "Could not check mount status: %s\n", strerror(-ret));
 		return ret;
-	} else if(ret) {
+	} else if (ret) {
 		fprintf(stderr, "%s is currently mounted. Aborting.\n", av[optind]);
 		return -EBUSY;
 	}
 
-	root = open_ctree(av[optind], bytenr, 1);
+	fp = open(av[optind], O_CREAT|O_RDRW, 0600);
+	if (fp < 0) {
+		fprintf(stderr, "Could not open %s\n", av[optind]);
+		return 1;
+	}
+	root = open_ctree_fd(fp, av[optind], bytenr, 1, use_earliest_bdev);
 
 	if (root == NULL)
 		return 1;
 
-	/* make the super writing code think we've read the first super */
-	root->fs_info->super_bytenr = BTRFS_SUPER_INFO_OFFSET;
-	ret = write_all_supers(root);
+	fprintf(stderr, "Found superblock with generation %llu.\n", root->fs_info->super_copy.generation);
+
+	if (commit) {
+		fprintf(stderr, "Committing...\n");
+
+		/* make the super writing code think we've read the first super */
+		root->fs_info->super_bytenr = BTRFS_SUPER_INFO_OFFSET;
+		ret = write_all_supers(root);
+	}
 
 	/* we don't close the ctree or anything, because we don't want a real
 	 * transaction commit.  We just want the super copy we pulled off the
