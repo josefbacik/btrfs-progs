@@ -17,7 +17,8 @@ LIBS=-luuid
 RESTORE_LIBS=-lz
 
 progs = btrfsctl mkfs.btrfs btrfs-debug-tree btrfs-show btrfs-vol btrfsck \
-	btrfs btrfs-map-logical restore find-root calc-size btrfs-corrupt-block
+	btrfs btrfs-map-logical restore find-root calc-size btrfs-corrupt-block \
+	btrfs-dump-super
 
 # make C=1 to enable sparse
 ifdef C
@@ -73,6 +74,9 @@ btrfs-zero-log: $(objects) btrfs-zero-log.o
 btrfs-select-super: $(objects) btrfs-select-super.o
 	$(CC) $(CFLAGS) -o btrfs-select-super $(objects) btrfs-select-super.o $(LDFLAGS) $(LIBS)
 
+btrfs-dump-super: $(objects) btrfs-dump-super.o
+	$(CC) $(CFLAGS) -o btrfs-dump-super $(objects) btrfs-dump-super.o $(LDFLAGS) $(LIBS)
+
 btrfstune: $(objects) btrfstune.o
 	$(CC) $(CFLAGS) -o btrfstune $(objects) btrfstune.o $(LDFLAGS) $(LIBS)
 
@@ -105,7 +109,8 @@ install-man:
 
 clean :
 	rm -f $(progs) cscope.out *.o .*.d btrfs-convert btrfs-image btrfs-select-super \
-	      btrfs-zero-log btrfstune dir-test ioctl-test quick-test version.h
+	      btrfs-dump-super btrfs-zero-log btrfstune dir-test ioctl-test quick-test \
+	      version.h
 	cd man; make clean
 
 install: $(progs) install-man
