@@ -14,7 +14,7 @@ INSTALL = install
 prefix ?= /usr/local
 bindir = $(prefix)/bin
 LIBS=-luuid
-RESTORE_LIBS=-lz
+RESTORE_LIBS=-lz -llzo2
 
 progs = btrfsctl mkfs.btrfs btrfs-debug-tree btrfs-show btrfs-vol btrfsck \
 	btrfs btrfs-map-logical restore find-root calc-size btrfs-corrupt-block \
