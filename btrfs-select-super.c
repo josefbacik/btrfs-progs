@@ -48,7 +48,7 @@ int main(int ac, char **av)
 	int num;
 	u64 bytenr = 0;
 	int commit = 0;
-	int use_lowest_bdev = 0;
+	int use_earliest_bdev = 0;
 	int fp;
 
 	while(1) {
@@ -93,7 +93,7 @@ int main(int ac, char **av)
 		return -EBUSY;
 	}
 
-	fp = open(av[optind], O_CREAT|O_RDRW, 0600);
+	fp = open(av[optind], O_CREAT|O_RDWR, 0600);
 	if (fp < 0) {
 		fprintf(stderr, "Could not open %s\n", av[optind]);
 		return 1;
