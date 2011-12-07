@@ -438,13 +438,15 @@ static int find_and_setup_root(struct btrfs_root *tree_root,
 		     root, fs_info, objectid);
 	ret = btrfs_find_last_root(tree_root, objectid,
 				   &root->root_item, &root->root_key);
-	BUG_ON(ret);
+	if (ret)
+		return ret;
 
 	blocksize = btrfs_level_size(root, btrfs_root_level(&root->root_item));
 	generation = btrfs_root_generation(&root->root_item);
 	root->node = read_tree_block(root, btrfs_root_bytenr(&root->root_item),
 				     blocksize, generation);
-	BUG_ON(!root->node);
+	if (!root->node)
+		return -ENOENT;
 	return 0;
 }
 
