@@ -43,6 +43,11 @@ int btrfs_find_last_root(struct btrfs_root *root, u64 objectid,
 
 	BUG_ON(ret == 0);
 	l = path->nodes[0];
+	if (path->slots[0] == 0) {
+		ret = -ENOENT;
+		goto out;
+	}
+
 	BUG_ON(path->slots[0] == 0);
 	slot = path->slots[0] - 1;
 	btrfs_item_key_to_cpu(l, &found_key, slot);
