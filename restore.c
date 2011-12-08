@@ -831,8 +831,8 @@ static struct btrfs_root *open_fs(const char *dev, u64 root_location, int super_
 	key.offset = (u64)-1;
 
 	root->fs_info->fs_root = btrfs_read_fs_root(root->fs_info, &key);
-	if (!root->fs_info->fs_root) {
-		fprintf(stderr, "Couldn't read fs_root\n");
+	if (IS_ERR(root->fs_info->fs_root)) {
+		fprintf(stderr, "Couldn't read fs_root: %d\n", PTR_ERR(root));
 		close_ctree(root);
 		return NULL;
 	}
