@@ -260,13 +260,6 @@ static int find_root(struct btrfs_root *root)
 		int mirror_num;
 		int num_copies;
 
-		if (offset >
-		    btrfs_super_total_bytes(&root->fs_info->super_copy)) {
-			printf("Went past the fs size, exiting, offset=%Lu, "
-			       "total_bytes=%Lu\n", offset,
-			       btrfs_super_total_bytes(&root->fs_info->super_copy));
-			break;
-		}
 		if (offset >= (metadata_offset + metadata_size)) {
 			if (verbose)
 				printf("Moving to the next metadata chunk\n");
