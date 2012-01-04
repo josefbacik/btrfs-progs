@@ -923,9 +923,7 @@ static struct btrfs_root *open_fs(const char *dev, u64 root_location,
 out:
 	if (fs_location) {
 		struct btrfs_root *fs_root = root->fs_info->fs_root;
-		if (fs_root) {
-			free_extent_buffer(fs_root->node);
-		} else {
+		if (!fs_root) {
 			fs_root = malloc(sizeof(struct btrfs_root));
 			if (!fs_root) {
 				fprintf(stderr, "Out of memory\n");
