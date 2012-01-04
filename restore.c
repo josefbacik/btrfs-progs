@@ -837,7 +837,35 @@ static int do_list_roots(struct btrfs_root *root)
 	return 0;
 }
 
-static struct btrfs_root *open_fs(const char *dev, u64 root_location, int super_mirror, int list_roots)
+static int __setup_root(u32 nodesize, u32 leafsize, u32 sectorsize,
+			u32 stripesize, struct btrfs_root *root,
+			struct btrfs_fs_info *fs_info, u64 objectid)
+{
+	root->node = NULL;
+	root->commit_root = NULL;
+	root->sectorsize = sectorsize;
+	root->nodesize = nodesize;
+	root->leafsize = leafsize;
+	root->stripesize = stripesize;
+	root->ref_cows = 0;
+	root->track_dirty = 0;
+
+	root->fs_info = fs_info;
+	root->objectid = objectid;
+	root->last_trans = 0;
+	root->highest_inode = 0;
+	root->last_inode_alloc = 0;
+
+	INIT_LIST_HEAD(&root->dirty_list);
+	memset(&root->root_key, 0, sizeof(root->root_key));
+	memset(&root->root_item, 0, sizeof(root->root_item));
+	root->root_key.objectid = objectid;
+	return 0;
+}
+
+static struct btrfs_root *open_fs(const char *dev, u64 root_location,
+				  u64 fs_location, u64 root_objectid,
+				  int super_mirror, int list_roots)
 {
 	struct btrfs_key key;
 	struct btrfs_root *root;
@@ -889,23 +917,51 @@ static struct btrfs_root *open_fs(const char *dev, u64 root_location, int super_
 	if (list_roots)
 		goto out;
 
-	key.objectid = BTRFS_FS_TREE_OBJECTID;
-	key.type = BTRFS_ROOT_ITEM_KEY;
-	key.offset = (u64)-1;
+	if (!root_objectid)
+		root_objectid = BTRFS_FS_TREE_OBJECTID;
 
-	root->fs_info->fs_root = btrfs_read_fs_root_no_cache(root->fs_info, &key);
-	if (IS_ERR(root->fs_info->fs_root)) {
-		fprintf(stderr, "Couldn't read fs_root: %d\n",
-			PTR_ERR(root->fs_info->fs_root));
-		close_ctree(root);
-		return NULL;
-	}
 out:
+	if (fs_location) {
+		struct btrfs_root *fs_root = root->fs_info->fs_root;
+		if (fs_root) {
+			free_extent_buffer(fs_root->node);
+		} else {
+			fs_root = malloc(sizeof(struct btrfs_root));
+			if (!fs_root) {
+				fprintf(stderr, "Out of memory\n");
+				close_ctree(root);
+				return NULL;
+			}
+			__setup_root(4096, 4096, 4096, 4096, fs_root,
+				     root->fs_info, root_objectid);
+			root->fs_info->fs_root = fs_root;
+		}
+		fs_root->node = read_tree_block(root, fs_location, 4096, 0);
+		if (!fs_root->node) {
+			fprintf(stderr, "Failed to read fs location\n");
+			close_ctree(root);
+			return NULL;
+		}
+	} else if (root_objectid) {
+		key.objectid = root_objectid;
+		key.type = BTRFS_ROOT_ITEM_KEY;
+		key.offset = (u64)-1;
+
+		root->fs_info->fs_root =
+			btrfs_read_fs_root_no_cache(root->fs_info, &key);
+		if (IS_ERR(root->fs_info->fs_root)) {
+			fprintf(stderr, "Error reading fs root %d\n",
+				PTR_ERR(root->fs_info->fs_root));
+			close_ctree(root);
+			return NULL;
+		}
+	}
+
 	if (list_roots) {
 		int ret = do_list_roots(root);
 		if (ret) {
-			root = NULL;
 			close_ctree(root);
+			return NULL;
 		}
 	}
 
@@ -1074,21 +1130,13 @@ int main(int argc, char **argv)
 		return -EBUSY;
 	}
 
-	root = open_fs(argv[optind], tree_location, super_mirror, list_roots);
+	root = open_fs(argv[optind], tree_location, fs_location, root_objectid,
+		       super_mirror, list_roots);
 	if (root == NULL)
 		return 1;
 
 	if (list_roots)
 		goto out;
-
-	if (fs_location != 0) {
-		free_extent_buffer(root->node);
-		root->node = read_tree_block(root, fs_location, 4096, 0);
-		if (!root->node) {
-			fprintf(stderr, "Failed to read fs location\n");
-			goto out;
-		}
-	}
 
 	memset(path_name, 0, 4096);
 
@@ -1100,23 +1148,6 @@ int main(int argc, char **argv)
 		if (dir_name[len - 1] != '/')
 			break;
 		dir_name[len - 1] = '\0';
-	}
-
-	if (root_objectid != 0) {
-		struct btrfs_root *orig_root = root;
-
-		key.objectid = root_objectid;
-		key.type = BTRFS_ROOT_ITEM_KEY;
-		key.offset = (u64)-1;
-		root = btrfs_read_fs_root(orig_root->fs_info, &key);
-		if (IS_ERR(root)) {
-			fprintf(stderr, "Error reading root\n");
-			root = orig_root;
-			ret = 1;
-			goto out;
-		}
-		key.type = 0;
-		key.offset = 0;
 	}
 
 	if (find_dir) {
