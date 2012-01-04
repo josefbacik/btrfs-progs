@@ -871,13 +871,13 @@ static struct btrfs_root *open_fs(const char *dev, u64 root_location, int super_
 		return NULL;
 	}
 	if (!root_location)
-		bytenr = btrfs_super_root(&root->fs_info->super_copy);
+		root_location = btrfs_super_root(&root->fs_info->super_copy);
 
 	blocksize = btrfs_level_size(root,
 			btrfs_super_root_level(&root->fs_info->super_copy));
 	generation = btrfs_super_generation(&root->fs_info->super_copy);
 
-	root->fs_info->tree_root->node = read_tree_block(root, bytenr,
+	root->fs_info->tree_root->node = read_tree_block(root, root_location,
 							 blocksize,
 							 generation);
 	if (!root->fs_info->tree_root->node) {
@@ -895,7 +895,7 @@ static struct btrfs_root *open_fs(const char *dev, u64 root_location, int super_
 
 	root->fs_info->fs_root = btrfs_read_fs_root(root->fs_info, &key);
 	if (IS_ERR(root->fs_info->fs_root)) {
-		fprintf(stderr, "Couldn't read fs_root: %ld\n", PTR_ERR(root));
+		fprintf(stderr, "Couldn't read fs_root: %d\n", PTR_ERR(root));
 		close_ctree(root);
 		return NULL;
 	}
