@@ -250,6 +250,10 @@ static int find_root(struct btrfs_root *root)
 		return ret;
 
 	offset = metadata_offset;
+	if (verbose)
+		printf("Checking metadata chunk %Lu, size %Lu\n",
+		       metadata_offset, metadata_size);
+
 	while (1) {
 		u64 map_length = 4096;
 		u64 type;
@@ -264,6 +268,8 @@ static int find_root(struct btrfs_root *root)
 			break;
 		}
 		if (offset >= (metadata_offset + metadata_size)) {
+			if (verbose)
+				printf("Moving to the next metadata chunk\n");
 			err = btrfs_next_metadata(&root->fs_info->mapping_tree,
 						  &metadata_offset,
 						  &metadata_size);
@@ -272,6 +278,9 @@ static int find_root(struct btrfs_root *root)
 				break;
 			}
 			offset = metadata_offset;
+			if (verbose)
+				printf("Checking metadata chunk %Lu, size %Lu"
+				       "\n", metadata_offset, metadata_size);
 		}
 		mirror_num = 1;
 	again:
