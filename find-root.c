@@ -138,7 +138,9 @@ static int dump_root_bytenr(struct btrfs_root *root, u64 bytenr, u64 gen)
 
 			offset = btrfs_item_ptr_offset(leaf, slot);
 			read_extent_buffer(leaf, &ri, offset, sizeof(ri));
-			printf("Generation: %Lu Root bytenr: %Lu\n", gen, btrfs_root_bytenr(&ri));
+			printf("Generation: %Lu Root bytenr: %Lu "
+			       "Root objectid: %Lu\n", gen,
+			       btrfs_root_bytenr(&ri), found_key.objectid);
 		}
 		path->slots[0]++;
 	}
