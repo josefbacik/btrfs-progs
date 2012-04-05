@@ -948,7 +948,7 @@ out:
 		root->fs_info->fs_root =
 			btrfs_read_fs_root_no_cache(root->fs_info, &key);
 		if (IS_ERR(root->fs_info->fs_root)) {
-			fprintf(stderr, "Error reading fs root %d\n",
+			fprintf(stderr, "Error reading fs root %ld\n",
 				PTR_ERR(root->fs_info->fs_root));
 			close_ctree(root);
 			return NULL;
