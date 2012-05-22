@@ -613,7 +613,7 @@ int do_scan(int argc, char **argv)
 	if( argc >= 2 && !strcmp(argv[1],"--all-devices")){
 
 		if( argc >2 ){
-			fprintf(stderr, "ERROR: too may arguments\n");
+			fprintf(stderr, "ERROR: too many arguments\n");
                         return 22;
                 }
 
