@@ -877,7 +877,7 @@ static struct btrfs_root *open_fs(const char *dev, u64 root_location,
 
 	for (i = super_mirror; i < BTRFS_SUPER_MIRROR_MAX; i++) {
 		bytenr = btrfs_sb_offset(i);
-		root = open_ctree_recovery(dev, bytenr, root_location);
+		root = open_ctree_recovery(dev, bytenr, root_location, 0);
 		if (root)
 			goto out;
 		fprintf(stderr, "Could not open root, trying backup super\n");
