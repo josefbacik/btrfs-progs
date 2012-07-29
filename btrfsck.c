@@ -2814,10 +2814,11 @@ int main(int ac, char **av)
 	u64 root_tree_generation = 0;
 	int ret;
 	int num;
-
+	int writes=0;
+	
 	while(1) {
 		int c;
-		c = getopt(ac, av, "s:t:g:");
+		c = getopt(ac, av, "s:t:g:c");
 		if (c < 0)
 			break;
 		switch(c) {
@@ -2834,6 +2835,9 @@ int main(int ac, char **av)
 			case 'g':
 				root_tree_generation = atoll(optarg);
 				printf("Using generation %llu\n", root_tree_generation);
+				break;
+			case 'c':
+				writes=1;
 				break;
 			default:
 				print_usage();
@@ -2855,7 +2859,7 @@ int main(int ac, char **av)
 		return -EBUSY;
 	}
 
-	root = open_ctree_recovery(av[optind], bytenr, root_tree_bytenr, root_tree_generation);
+	root = open_ctree_recovery(av[optind], bytenr, root_tree_bytenr, root_tree_generation, writes);
 
 	if (root == NULL)
 		return 1;

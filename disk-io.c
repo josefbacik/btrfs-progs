@@ -867,7 +867,7 @@ struct btrfs_root *open_ctree(const char *filename, u64 sb_bytenr, int writes)
 }
 
 struct btrfs_root *open_ctree_recovery(const char *filename, u64 sb_bytenr,
-				       u64 root_tree_bytenr, u64 root_tree_generation)
+				       u64 root_tree_bytenr, u64 root_tree_generation, int writes)
 {
 	int fp;
 	struct btrfs_root *root;
@@ -877,7 +877,7 @@ struct btrfs_root *open_ctree_recovery(const char *filename, u64 sb_bytenr,
 		fprintf (stderr, "Could not open %s\n", filename);
 		return NULL;
 	}
-	root = __open_ctree_fd(fp, filename, sb_bytenr, root_tree_bytenr, root_tree_generation, 0, 0);
+	root = __open_ctree_fd(fp, filename, sb_bytenr, root_tree_bytenr, root_tree_generation, writes, 0);
 	close(fp);
 
 	return root;
