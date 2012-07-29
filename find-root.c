@@ -38,6 +38,8 @@
 static int verbose = 0;
 static u16 csum_size = 0;
 static u64 search_objectid = BTRFS_ROOT_TREE_OBJECTID;
+u64 best_gen=0;
+u64 best_hbyte=0;
 
 static void usage()
 {
@@ -138,9 +140,10 @@ static int dump_root_bytenr(struct btrfs_root *root, u64 bytenr, u64 gen)
 
 			offset = btrfs_item_ptr_offset(leaf, slot);
 			read_extent_buffer(leaf, &ri, offset, sizeof(ri));
-			printf("Generation: %Lu Root bytenr: %Lu "
-			       "Root objectid: %Lu\n", gen,
-			       btrfs_root_bytenr(&ri), found_key.objectid);
+			if (verbose)
+				printf("Generation: %Lu Root bytenr: %Lu "
+						 "Root objectid: %Lu\n", gen,
+						 btrfs_root_bytenr(&ri), found_key.objectid);
 		}
 		path->slots[0]++;
 	}
@@ -157,7 +160,7 @@ static int search_iobuf(struct btrfs_root *root, void *iobuf,
 	u32 size = btrfs_super_nodesize(&root->fs_info->super_copy);
 	u8 level = root->fs_info->super_copy.root_level;
 	size_t block_off = 0;
-
+	
 	while (block_off < iobuf_size) {
 		void *block = iobuf + block_off;
 		struct btrfs_header *header = block;
@@ -176,21 +179,29 @@ static int search_iobuf(struct btrfs_root *root, void *iobuf,
 		if (h_level != level)
 			goto next;
 		if (csum_block(block, size)) {
-			fprintf(stderr, "Well block %Lu seems good, "
-				"but the csum doesn't match\n",
-				h_byte);
+			if (verbose)
+				fprintf(stderr, "Well block %Lu seems good, "
+					"but the csum doesn't match\n",
+					h_byte);
 			goto next;
 		}
 		/* Found some kind of root and it's fairly valid. */
 		if (dump_root_bytenr(root, h_byte, h_gen))
 		        break;
 		if (h_gen != gen) {
-			fprintf(stderr, "Well block %Lu seems great, "
-				"but generation doesn't match, "
-				"have=%Lu, want=%Lu\n", h_byte, h_gen,
-				gen);
+			if (h_gen > best_gen){
+				best_gen=h_gen;
+				best_hbyte=h_byte;
+			}
+			if (verbose)
+				fprintf(stderr, "Well block %Lu seems great, "
+					"but generation doesn't match, "
+					"have=%Lu, want=%Lu\n", h_byte, h_gen,
+					gen);
 			goto next;
 		}
+		best_gen=h_gen;
+		best_hbyte=h_byte;
 		printf("Found tree root at %Lu\n", h_byte);
 		return 0;
 next:
@@ -363,5 +374,10 @@ int main(int argc, char **argv)
 	csum_size = btrfs_super_csum_size(&root->fs_info->super_copy);
 	ret = find_root(root);
 	close_ctree(root);
+	
+	if (best_gen)
+		printf("Best generation I found was gen=%Lu at block %Lu", best_gen, best_hbyte); 
+	else
+		printf("I couldn't find any valid blocks.");
 	return ret;
 }

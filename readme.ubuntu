@@ -1,0 +1,2 @@
+sudo apt-get install uuid-dev zlib1g-dev liblzo2-dev
+And edit mkfs.c replacing <attr/xattr.h> with <sys/xattr.h>
