@@ -2800,7 +2800,7 @@ static int check_extents(struct btrfs_root *root)
 
 static void print_usage(void)
 {
-	fprintf(stderr, "usage: btrfsck dev\n");
+	fprintf(stderr, "usage: btrfsck [-s superblock] [-t tree root] [-g generation] dev\n");
 	fprintf(stderr, "%s\n", BTRFS_BUILD_VERSION);
 	exit(1);
 }
@@ -2810,12 +2810,15 @@ int main(int ac, char **av)
 	struct cache_tree root_cache;
 	struct btrfs_root *root;
 	u64 bytenr = 0;
+	u64 root_tree_bytenr = 0;
+	u64 root_tree_generation = 0;
 	int ret;
 	int num;
-
+	int writes=0;
+	
 	while(1) {
 		int c;
-		c = getopt(ac, av, "s:");
+		c = getopt(ac, av, "s:t:g:c");
 		if (c < 0)
 			break;
 		switch(c) {
@@ -2824,6 +2827,17 @@ int main(int ac, char **av)
 				bytenr = btrfs_sb_offset(num);
 				printf("using SB copy %d, bytenr %llu\n", num,
 				       (unsigned long long)bytenr);
+				break;
+			case 't':
+				root_tree_bytenr = atoll(optarg);
+				printf("Using root tree %llu\n", root_tree_bytenr);
+				break;
+			case 'g':
+				root_tree_generation = atoll(optarg);
+				printf("Using generation %llu\n", root_tree_generation);
+				break;
+			case 'c':
+				writes=1;
 				break;
 			default:
 				print_usage();
@@ -2845,18 +2859,22 @@ int main(int ac, char **av)
 		return -EBUSY;
 	}
 
-	root = open_ctree(av[optind], bytenr, 0);
+	root = open_ctree_recovery(av[optind], bytenr, root_tree_bytenr, root_tree_generation, writes);
 
 	if (root == NULL)
 		return 1;
 
+	printf("Checking extents...\n");
 	ret = check_extents(root);
 	if (ret)
 		goto out;
+	
+	printf("Checking fs roots...\n");
 	ret = check_fs_roots(root, &root_cache);
 	if (ret)
 		goto out;
 
+	printf("Checking root references...\n");
 	ret = check_root_refs(root, &root_cache);
 out:
 	free_root_recs(&root_cache);
