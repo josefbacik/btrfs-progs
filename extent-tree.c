@@ -31,6 +31,7 @@
 #define BLOCK_GROUP_DATA     EXTENT_WRITEBACK
 #define BLOCK_GROUP_METADATA EXTENT_UPTODATE
 #define BLOCK_GROUP_SYSTEM   EXTENT_NEW
+#define BLOCK_GROUP_ENOSPC   EXTENT_DELALLOC
 
 #define BLOCK_GROUP_DIRTY EXTENT_DIRTY
 
@@ -192,7 +193,7 @@ struct btrfs_block_group_cache *btrfs_lookup_first_block_group(struct
 	ret = find_first_extent_bit(block_group_cache,
 				    bytenr, &start, &end,
 				    BLOCK_GROUP_DATA | BLOCK_GROUP_METADATA |
-				    BLOCK_GROUP_SYSTEM);
+				    BLOCK_GROUP_SYSTEM | BLOCK_GROUP_ENOSPC);
 	if (ret) {
 		return NULL;
 	}
@@ -219,7 +220,7 @@ struct btrfs_block_group_cache *btrfs_lookup_block_group(struct
 	ret = find_first_extent_bit(block_group_cache,
 				    bytenr, &start, &end,
 				    BLOCK_GROUP_DATA | BLOCK_GROUP_METADATA |
-				    BLOCK_GROUP_SYSTEM);
+				    BLOCK_GROUP_SYSTEM | BLOCK_GROUP_ENOSPC);
 	if (ret) {
 		return NULL;
 	}
@@ -331,6 +332,8 @@ static int block_group_state_bits(u64 flags)
 		bits |= BLOCK_GROUP_METADATA;
 	if (flags & BTRFS_BLOCK_GROUP_SYSTEM)
 		bits |= BLOCK_GROUP_SYSTEM;
+	if (flags & BTRFS_BLOCK_GROUP_ENOSPC)
+		bits |= BLOCK_GROUP_ENOSPC;
 	return bits;
 }
 
@@ -3305,6 +3308,8 @@ int btrfs_read_block_groups(struct btrfs_root *root)
 			bit = BLOCK_GROUP_SYSTEM;
 		} else if (cache->flags & BTRFS_BLOCK_GROUP_METADATA) {
 			bit = BLOCK_GROUP_METADATA;
+		} else if (cache->flags & BTRFS_BLOCK_GROUP_ENOSPC) {
+			bit = BLOCK_GROUP_ENOSPC;
 		}
 		set_avail_alloc_bits(info, cache->flags);
 		if (btrfs_chunk_readonly(root, cache->key.objectid))

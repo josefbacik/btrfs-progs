@@ -133,6 +133,9 @@ static int cmd_df(int argc, char **argv)
 		} else if (flags & BTRFS_BLOCK_GROUP_METADATA) {
 			snprintf(description, 9, "%s", "Metadata");
 			written += 8;
+		} else if (flags & BTRFS_BLOCK_GROUP_ENOSPC) {
+			snprintf(description, 11, "%s", "Enospc log");
+			written += 10;
 		}
 
 		if (flags & BTRFS_BLOCK_GROUP_RAID0) {
