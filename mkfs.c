@@ -206,13 +206,15 @@ static int create_one_raid_group(struct btrfs_trans_handle *trans,
 static int create_raid_groups(struct btrfs_trans_handle *trans,
 			      struct btrfs_root *root, u64 data_profile,
 			      int data_profile_opt, u64 metadata_profile,
-			      int metadata_profile_opt, int mixed, int ssd)
+			      int metadata_profile_opt, int mixed, int ssd,
+			      int enospc_log)
 {
 	u64 num_devices = btrfs_super_num_devices(root->fs_info->super_copy);
 	u64 allowed = 0;
 	u64 devices_for_raid = num_devices;
 	int ret;
 
+	root = root->fs_info->extent_root;
 	/*
 	 * Set default profiles according to number of added devices.
 	 * For mixed groups defaults are single/single.
@@ -281,9 +283,75 @@ static int create_raid_groups(struct btrfs_trans_handle *trans,
 					    (allowed & metadata_profile));
 		BUG_ON(ret);
 
+		if (!mixed) {
+			ret = create_one_raid_group(trans, root,
+						    BTRFS_BLOCK_GROUP_ENOSPC |
+						    (allowed & metadata_profile));
+			BUG_ON(ret);
+		}
+
 		ret = recow_roots(trans, root);
 		BUG_ON(ret);
 	}
+
+	if (!mixed && enospc_log) {
+		u64 total_bytes =
+			btrfs_super_total_bytes(root->fs_info->super_copy);
+		u64 alloced_bytes = 0;
+		u64 alloc_flags = BTRFS_BLOCK_GROUP_ENOSPC |
+			(allowed & metadata_profile);
+
+		if (alloc_flags & (BTRFS_BLOCK_GROUP_RAID1 |
+				   BTRFS_BLOCK_GROUP_DUP)) {
+			total_bytes >>= 1;
+		} else if (alloc_flags & (BTRFS_BLOCK_GROUP_RAID10)) {
+			total_bytes /= (num_devices & ~(u64)1) >> 1;
+		} else if (alloc_flags & (BTRFS_BLOCK_GROUP_RAID5)) {
+			total_bytes *= num_devices - 1;
+			total_bytes /= num_devices;
+		} else if (alloc_flags & (BTRFS_BLOCK_GROUP_RAID6)) {
+			total_bytes *= num_devices - 2;
+			total_bytes /= num_devices;
+		}
+
+		/*
+		 * We want the enospc log to be 1% of the file system or a max
+		 * of 1 gigabyte.  The log is not necessarily a reflection of
+		 * how much is in use but how much outstanding metadata we could
+		 * possibly have at any given point.  It is not possible to have
+		 * 1 gigabyte of outstanding metadata modifications to be
+		 * floating around, so no matter how large your file system is
+		 * we should never get close to filling up the entire log in the
+		 * most awful case.  If I'm wrong (and I'm often wrong) we can
+		 * always jack it up some, but lets try to err on the side of
+		 * not eating up all of the users available space.
+		 */
+		total_bytes = total_bytes / 100;
+		total_bytes = min_t(u64, total_bytes, 1024 * 1024 * 1024);
+		total_bytes = (total_bytes + root->leafsize) &
+			~(root->leafsize - 1);
+
+		/*
+		 * We add 1mb to the alloc bytes in case we alloc'ed a chunk
+		 * that was stripe aligned weirdly and is just under the total
+		 * bytes so we don't allocate a whole other chunk just to make
+		 * up for a small shortfall.
+		 */
+		while (!ret &&
+		       (alloced_bytes + 1 * 1024 * 1024) < total_bytes) {
+			u64 chunk_start, chunk_size = total_bytes - alloced_bytes;
+
+			ret = btrfs_alloc_chunk(trans, root, &chunk_start,
+						&chunk_size, alloc_flags);
+			BUG_ON(ret);
+			alloced_bytes += chunk_size;
+			ret = btrfs_make_block_group(trans, root, 0,
+				alloc_flags, BTRFS_FIRST_CHUNK_TREE_OBJECTID,
+				chunk_start, chunk_size);
+		}
+		BUG_ON(ret);
+	}
+
 	if (!mixed && num_devices > 1 && (allowed & data_profile)) {
 		ret = create_one_raid_group(trans, root,
 					    BTRFS_BLOCK_GROUP_DATA |
@@ -1281,7 +1349,7 @@ int main(int ac, char **av)
 	int nodiscard = 0;
 	int ssd = 0;
 	int force_overwrite = 0;
-
+	int enospc_log = 0;
 	char *source_dir = NULL;
 	int source_dir_set = 0;
 	u64 num_of_meta_chunks = 0;
@@ -1511,7 +1579,7 @@ raid_groups:
 	if (!source_dir_set) {
 		ret = create_raid_groups(trans, root, data_profile,
 				 data_profile_opt, metadata_profile,
-				 metadata_profile_opt, mixed, ssd);
+				 metadata_profile_opt, mixed, ssd, enospc_log);
 		BUG_ON(ret);
 	}
 

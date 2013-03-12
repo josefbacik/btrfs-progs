@@ -706,6 +706,13 @@ int btrfs_alloc_chunk(struct btrfs_trans_handle *trans,
 			min_stripe_size = 32 * 1024 * 1024;
 		}
 	}
+
+	if (type & BTRFS_BLOCK_GROUP_ENOSPC) {
+		calc_size = *num_bytes;
+		max_chunk_size = 1024 * 1024 * 1024;
+		min_stripe_size = 32 * 1024 * 1024;
+	}
+
 	if (type & BTRFS_BLOCK_GROUP_RAID1) {
 		num_stripes = min_t(u64, 2,
 				  btrfs_super_num_devices(info->super_copy));
