@@ -81,7 +81,7 @@ static int close_all_devices(struct btrfs_fs_info *fs_info)
 	return 0;
 }
 
-static struct btrfs_root *open_ctree_broken(int fd, const char *device)
+static struct btrfs_root *open_ctree_broken(int fd, int super_mirror, const char *device)
 {
 	u32 sectorsize;
 	u32 nodesize;
@@ -100,9 +100,10 @@ static struct btrfs_root *open_ctree_broken(int fd, const char *device)
 	struct btrfs_fs_devices *fs_devices = NULL;
 	u64 total_devs;
 	u64 features;
+	u64 super_bytenr = btrfs_sb_offset(super_mirror);
 
 	ret = btrfs_scan_one_device(fd, device, &fs_devices,
-				    &total_devs, BTRFS_SUPER_INFO_OFFSET);
+				    &total_devs, super_bytenr);
 
 	if (ret) {
 		fprintf(stderr, "No valid Btrfs found on %s\n", device);
@@ -147,10 +148,10 @@ static struct btrfs_root *open_ctree_broken(int fd, const char *device)
 	if (ret)
 		goto out_cleanup;
 
-	fs_info->super_bytenr = BTRFS_SUPER_INFO_OFFSET;
+	fs_info->super_bytenr = super_bytenr;
 	disk_super = fs_info->super_copy;
 	ret = btrfs_read_dev_super(fs_devices->latest_bdev,
-				   disk_super, BTRFS_SUPER_INFO_OFFSET);
+				   disk_super, super_bytenr);
 	if (ret) {
 		printk("No valid btrfs found\n");
 		goto out_devices;
@@ -328,6 +329,7 @@ static int find_root(struct btrfs_root *root)
 
 	err = btrfs_next_metadata(&root->fs_info->mapping_tree,
 				  &metadata_offset, &metadata_size);
+	printf("initial offset is %Lu, size %Lu\n", metadata_offset, metadata_size);
 	if (err)
 		return ret;
 
@@ -345,6 +347,7 @@ static int find_root(struct btrfs_root *root)
 			err = btrfs_next_metadata(&root->fs_info->mapping_tree,
 						  &metadata_offset,
 						  &metadata_size);
+			printf("next offset is %Lu, size %Lu\n", metadata_offset, metadata_size);
 			if (err) {
 				printf("No more metdata to scan, exiting\n");
 				break;
@@ -389,8 +392,9 @@ int main(int argc, char **argv)
 	int dev_fd;
 	int opt;
 	int ret;
+	int super_mirror = 0;
 
-	while ((opt = getopt(argc, argv, "o:")) != -1) {
+	while ((opt = getopt(argc, argv, "o:u:")) != -1) {
 		switch(opt) {
 			case 'o':
 				errno = 0;
@@ -399,6 +403,16 @@ int main(int argc, char **argv)
 				if (errno) {
 					fprintf(stderr, "Error parsing "
 						"objectid\n");
+					exit(1);
+				}
+				break;
+			case 'u':
+				errno = 0;
+				super_mirror = (int)strtol(optarg, NULL, 10);
+				if (errno != 0 ||
+				    super_mirror >= BTRFS_SUPER_MIRROR_MAX) {
+					fprintf(stderr, "Super mirror not "
+						"valid\n");
 					exit(1);
 				}
 				break;
@@ -419,7 +433,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	root = open_ctree_broken(dev_fd, argv[optind]);
+	root = open_ctree_broken(dev_fd, super_mirror, argv[optind]);
 	close(dev_fd);
 
 	if (!root) {
