@@ -373,6 +373,7 @@ static int find_root(struct btrfs_root *root)
 		bytenr = multi->stripes[0].physical;
 		kfree(multi);
 
+		printf("reading physical %Lu from device %Lu, fd %d\n", bytenr, device->devid, fd);
 		err = read_physical(root, fd, offset, bytenr, map_length);
 		if (!err) {
 			ret = 0;
