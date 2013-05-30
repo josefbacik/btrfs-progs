@@ -285,11 +285,9 @@ again:
 	}
 out:
 	cache = btrfs_lookup_block_group(root->fs_info, search_start);
-	if (!cache) {
+	if (!cache)
 		printk("Unable to find block group for %llu\n",
 			(unsigned long long)search_start);
-		WARN_ON(1);
-	}
 	return -ENOSPC;
 
 new_group:
@@ -2602,7 +2600,7 @@ check_failed:
 	ret = find_search_start(root, &block_group, &search_start,
 				total_needed, data);
 	if (ret)
-		goto error;
+		goto new_group;
 
 	ins->objectid = search_start;
 	ins->offset = num_bytes;

@@ -37,6 +37,8 @@ struct btrfs_device;
 
 struct extent_buffer *read_tree_block(struct btrfs_root *root, u64 bytenr,
 				      u32 blocksize, u64 parent_transid);
+struct extent_buffer *read_root_block(struct btrfs_root *root, u64 bytenr,
+				      u64 generation);
 int readahead_tree_block(struct btrfs_root *root, u64 bytenr, u32 blocksize,
 			 u64 parent_transid);
 struct extent_buffer *btrfs_find_create_tree_block(struct btrfs_root *root,

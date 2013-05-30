@@ -71,11 +71,35 @@ int btrfs_update_root(struct btrfs_trans_handle *trans, struct btrfs_root
 	unsigned long ptr;
 	u32 old_len;
 
+	root = root->fs_info->tree_root;
 	path = btrfs_alloc_path();
 	BUG_ON(!path);
 	ret = btrfs_search_slot(trans, root, key, path, 0, 1);
 	if (ret < 0)
 		goto out;
+	if (ret && root->backup) {
+		printf("ok root had a backup, lets try this again %Lu %d\n", key->objectid, path->slots[0]);
+		btrfs_print_leaf(root, path->nodes[0]);
+		/*
+		 * If we had to read the backup root then just overwrite the
+		 * item we find in the tree.
+		 */
+		if (path->slots[0])
+			path->slots[0]--;
+
+		while (path->slots[0] < btrfs_header_nritems(path->nodes[0])) {
+			struct btrfs_key found_key;
+
+			btrfs_item_key_to_cpu(path->nodes[0], &found_key,
+					      path->slots[0]);
+			if (found_key.objectid == key->objectid &&
+			    found_key.type == key->type) {
+				ret = 0;
+				break;
+			}
+			path->slots[0]++;
+		}
+	}
 	BUG_ON(ret != 0);
 	l = path->nodes[0];
 	slot = path->slots[0];

@@ -987,7 +987,7 @@ struct btrfs_root {
 
 	int ref_cows;
 	int track_dirty;
-
+	int backup;
 
 	u32 type;
 	u64 highest_inode;

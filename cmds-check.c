@@ -4586,8 +4586,16 @@ again:
 					      btrfs_root_bytenr(&ri),
 					      btrfs_level_size(root,
 					       btrfs_root_level(&ri)), 0);
-			add_root_to_pending(buf, &extent_cache, &pending,
-					    &seen, &nodes, &found_key);
+			if (!buf || !extent_buffer_uptodate(buf)) {
+				record_bad_block_io(root->fs_info,
+						    &extent_cache,
+						    btrfs_root_bytenr(&ri),
+						    root->leafsize);
+			} else {
+				add_root_to_pending(buf, &extent_cache,
+						    &pending, &seen, &nodes,
+						    &found_key);
+			}
 			free_extent_buffer(buf);
 		}
 		path.slots[0]++;
@@ -4658,6 +4666,8 @@ static int pin_down_tree_blocks(struct btrfs_fs_info *fs_info,
 	nritems = btrfs_header_nritems(eb);
 	for (i = 0; i < nritems; i++) {
 		if (level == 0) {
+			struct btrfs_root *tmp_root;
+
 			btrfs_item_key_to_cpu(eb, &key, i);
 			if (key.type != BTRFS_ROOT_ITEM_KEY)
 				continue;
@@ -4670,19 +4680,18 @@ static int pin_down_tree_blocks(struct btrfs_fs_info *fs_info,
 			bytenr = btrfs_disk_root_bytenr(eb, ri);
 
 			/*
-			 * If at any point we start needing the real root we
-			 * will have to build a stump root for the root we are
-			 * in, but for now this doesn't actually use the root so
-			 * just pass in extent_root.
+			 * We want to do this in case we had to read backup
+			 * roots to put together a non-broken view of the file
+			 * system, this will make sure that we get the right
+			 * block.
 			 */
-			tmp = read_tree_block(fs_info->extent_root, bytenr,
-					      leafsize, 0);
-			if (!tmp) {
+			key.offset = (u64)-1;
+			tmp_root = btrfs_read_fs_root(fs_info, &key);
+			if (IS_ERR(tmp_root)) {
 				fprintf(stderr, "Error reading root block\n");
 				return -EIO;
 			}
-			ret = pin_down_tree_blocks(fs_info, tmp, 0);
-			free_extent_buffer(tmp);
+			ret = pin_down_tree_blocks(fs_info, tmp_root->node, 0);
 			if (ret)
 				return ret;
 		} else {
