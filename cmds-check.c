@@ -2057,6 +2057,7 @@ static int check_owner_ref(struct btrfs_root *root,
 		back = (struct tree_backref *)node;
 		if (btrfs_header_owner(buf) == back->root)
 			return 0;
+		printf("rec %Lu's owner is %Lu, we want %Lu\n", rec->start, btrfs_header_owner(buf), back->root);
 	}
 	if (rec->is_root)
 		printf("rec %Lu is a root isnt setup right, found ref? %s\n", rec->start, found_ref ? "yes" : "no");
