@@ -2044,6 +2044,7 @@ static int check_owner_ref(struct btrfs_root *root,
 	int level;
 	int found = 0;
 	int ret;
+	int found_ref = 0;
 
 	list_for_each_entry(node, &rec->backrefs, list) {
 		if (node->is_data)
@@ -2052,10 +2053,13 @@ static int check_owner_ref(struct btrfs_root *root,
 			continue;
 		if (node->full_backref)
 			continue;
+		found_ref = 1;
 		back = (struct tree_backref *)node;
 		if (btrfs_header_owner(buf) == back->root)
 			return 0;
 	}
+	if (rec->is_root)
+		printf("rec %Lu is a root isnt setup right, found ref? %s\n", rec->start, found_ref ? "yes" : "no");
 	BUG_ON(rec->is_root);
 
 	/* try to find the block by search corresponding fs tree */
@@ -2303,6 +2307,9 @@ static int add_extent_rec(struct cache_tree *extent_cache,
 	int ret = 0;
 	int dup = 0;
 
+	if (is_root)
+		printf("adding extent start=%Lu, nr=%Lu, item_refs=%Lu\n",
+		       start, nr, extent_item_refs);
 	cache = find_cache_extent(extent_cache, start, nr);
 	if (cache) {
 		rec = container_of(cache, struct extent_record, cache);
@@ -2446,6 +2453,9 @@ static int add_tree_backref(struct cache_tree *extent_cache, u64 bytenr,
 	if (!back)
 		back = alloc_tree_backref(rec, parent, root);
 
+	if (rec->is_root)
+		printf("adding a tree backref for %Lu, found ref %d\n",
+		       bytenr, found_ref);
 	if (found_ref) {
 		if (back->node.found_ref) {
 			fprintf(stderr, "Extent back ref already exists "
