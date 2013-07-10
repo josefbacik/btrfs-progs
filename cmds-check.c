@@ -5113,6 +5113,135 @@ static int reinit_extent_tree(struct btrfs_fs_info *fs_info)
 	return btrfs_commit_transaction(trans, fs_info->extent_root);
 }
 
+static int read_data_extent(struct btrfs_root *root, u64 start, u64 len,
+			    char *buf)
+{
+	struct btrfs_multi_bio *multi = NULL;
+	struct btrfs_device *device;
+	u64 offset = 0;
+	u64 bytenr;
+	u64 read_len;
+	ssize_t done;
+	int fd;
+	int ret;
+
+	while (len) {
+		read_len = len;
+		ret = btrfs_map_block(&root->fs_info->mapping_tree, READ,
+				      start, &read_len, &multi, 0, NULL);
+		if (ret)
+			return ret;
+
+		device = multi->stripes[0].dev;
+
+		if (device->fd == 0) {
+			free(multi);
+			return -EIO;
+		}
+		fd = device->fd;
+		bytenr = multi->stripes[0].physical;
+		free(multi);
+
+		read_len = min(read_len, len);
+		done = pread64(fd, buf+offset, read_len, bytenr);
+		if (done < read_len)
+			return -EIO;
+
+		len -= done;
+		offset += done;
+		start += done;
+	}
+
+	return 0;
+
+}
+
+static int populate_csum(struct btrfs_trans_handle *trans,
+			 struct btrfs_root *csum_root, u64 start, u64 len)
+{
+	char *buf;
+	u64 offset = 0;
+	u32 sectorsize = csum_root->sectorsize;
+	int ret = 0;
+
+	buf = malloc(sectorsize);
+	if (!buf)
+		return -ENOMEM;
+	for (offset = 0; offset < len; offset += sectorsize) {
+		ret = read_data_extent(csum_root, start + offset, sectorsize,
+				       buf);
+		if (ret)
+			break;
+		ret = btrfs_csum_file_block(trans, csum_root, start + len,
+					    start + offset, buf, sectorsize);
+		if (ret)
+			break;
+	}
+	free(buf);
+	return ret;
+}
+
+static int fill_csum_tree(struct btrfs_trans_handle *trans,
+			  struct btrfs_root *csum_root)
+{
+	struct btrfs_root *extent_root = csum_root->fs_info->extent_root;
+	struct btrfs_path *path;
+	struct btrfs_extent_item *ei;
+	struct extent_buffer *leaf;
+	struct btrfs_key key;
+	int ret;
+
+	path = btrfs_alloc_path();
+	if (!path)
+		return -ENOMEM;
+
+	key.objectid = 0;
+	key.type = BTRFS_EXTENT_ITEM_KEY;
+	key.offset = 0;
+
+	ret = btrfs_search_slot(NULL, extent_root, &key, path, 0, 0);
+	if (ret < 0) {
+		btrfs_free_path(path);
+		return ret;
+	}
+
+	while (1) {
+		if (path->slots[0] >= btrfs_header_nritems(path->nodes[0])) {
+			ret = btrfs_next_leaf(extent_root, path);
+			if (ret < 0)
+				break;
+			if (ret) {
+				ret = 0;
+				break;
+			}
+		}
+		leaf = path->nodes[0];
+
+		btrfs_item_key_to_cpu(leaf, &key, path->slots[0]);
+		if (key.type != BTRFS_EXTENT_ITEM_KEY) {
+			path->slots[0]++;
+			continue;
+		}
+
+		ei = btrfs_item_ptr(leaf, path->slots[0],
+				    struct btrfs_extent_item);
+		if (!(btrfs_extent_flags(leaf, ei) &
+		      BTRFS_EXTENT_FLAG_DATA)) {
+			path->slots[0]++;
+			continue;
+		}
+
+		ret = populate_csum(trans, csum_root, key.objectid,
+				    key.offset);
+		if (ret)
+			break;
+		path->slots[0]++;
+	}
+
+	btrfs_free_path(path);
+	return ret;
+}
+
 static struct option long_options[] = {
 	{ "super", 1, NULL, 's' },
 	{ "repair", 0, NULL, 0 },
@@ -5235,6 +5364,12 @@ int cmd_check(int argc, char **argv)
 		ret = btrfs_fsck_reinit_root(trans, info->csum_root, 0);
 		if (ret) {
 			fprintf(stderr, "crc root initialization failed\n");
+			return -EIO;
+		}
+
+		ret = fill_csum_tree(trans, info->csum_root);
+		if (ret) {
+			fprintf(stderr, "crc refilling failed\n");
 			return -EIO;
 		}
 
