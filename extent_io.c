@@ -544,11 +544,15 @@ static int free_some_buffers(struct extent_io_tree *tree)
 	u32 nrscan = 0;
 	struct extent_buffer *eb;
 	struct list_head *node, *next;
+	struct list_head list;
+
+	INIT_LIST_HEAD(&list);
 
 	if (tree->cache_size < cache_soft_max)
 		return 0;
 
-	list_for_each_safe(node, next, &tree->lru) {
+	list_splice_init(&tree->lru, &list);
+	list_for_each_safe(node, next, &list) {
 		eb = list_entry(node, struct extent_buffer, lru);
 		if (eb->refs == 1) {
 			free_extent_buffer(eb);
@@ -560,6 +564,7 @@ static int free_some_buffers(struct extent_io_tree *tree)
 		if (nrscan++ > 64 && tree->cache_size < cache_hard_max)
 			break;
 	}
+	list_splice(&list, &tree->lru);
 	return 0;
 }
 
