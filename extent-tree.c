@@ -2417,7 +2417,7 @@ static int __free_extent(struct btrfs_trans_handle *trans,
 			BUG_ON(ret);
 		}
 
-		update_block_group(trans, root, bytenr, num_bytes, 0, mark_free);
+		update_block_group(trans, root, bytenr, num_bytes, 0, 0);
 	}
 fail:
 	btrfs_free_path(path);
@@ -2733,6 +2733,11 @@ static int alloc_reserved_tree_block(struct btrfs_trans_handle *trans,
 	path->leave_spinning = 1;
 	ret = btrfs_insert_empty_item(trans, fs_info->extent_root, path,
 				      ins, size);
+	if (ret) {
+		printf("insert empty item for %Lu-%Lu returned %d\n",
+		       ins->objectid, ins->offset, ret);
+		btrfs_print_leaf(fs_info->extent_root, path->nodes[0]);
+	}
 	BUG_ON(ret);
 
 	leaf = path->nodes[0];
