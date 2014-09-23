@@ -56,7 +56,10 @@ static int get_xattrs = 0;
 static int dry_run = 0;
 
 #define LZO_LEN 4
-#define PAGE_CACHE_SIZE 4096
+#define PAGE_CACHE_SIZE 4096UL
+#define PAGE_CACHE_MASK (~(PAGE_CACHE_SIZE - 1))
+#define PAGE_CACHE_ALIGN(addr) (((addr) + PAGE_CACHE_SIZE - 1)	\
+							& PAGE_CACHE_MASK)
 #define lzo1x_worst_compress(x) ((x) + ((x) / 16) + 64 + 3)
 
 static int decompress_zlib(char *inbuf, char *outbuf, u64 compress_len,
@@ -91,6 +94,26 @@ static inline size_t read_compress_length(unsigned char *buf)
 	__le32 dlen;
 	memcpy(&dlen, buf, LZO_LEN);
 	return le32_to_cpu(dlen);
+}
+
+static void align_if_need(size_t *tot_in, size_t *in_len)
+{
+	size_t tot_in_aligned;
+	size_t bytes_left;
+
+	tot_in_aligned = PAGE_CACHE_ALIGN(*tot_in);
+	bytes_left = tot_in_aligned - *tot_in;
+
+	if (bytes_left >= LZO_LEN)
+		return;
+
+	/*
+	 * The LZO_LEN bytes is guaranteed to be in one page as a whole,
+	 * so if a page has fewer than LZO_LEN bytes left, the LZO_LEN bytes
+	 * should be fetched at the start of the next page
+	 */
+	*in_len += bytes_left;
+	*tot_in = tot_in_aligned;
 }
 
 static int decompress_lzo(unsigned char *inbuf, char *outbuf, u64 compress_len,
@@ -135,8 +158,8 @@ static int decompress_lzo(unsigned char *inbuf, char *outbuf, u64 compress_len,
 		}
 		out_len += new_len;
 		outbuf += new_len;
+		align_if_need(&tot_in, &in_len);
 		inbuf += in_len;
-		tot_in += in_len;
 	}
 
 	*decompress_len = out_len;
