@@ -174,9 +174,6 @@ static int io_ctl_check_generation(struct io_ctl *io_ctl, u64 generation)
 
 	gen = io_ctl->cur;
 	if (le64_to_cpu(*gen) != generation) {
-		printk("btrfs: space cache generation "
-		       "(%Lu) does not match inode (%Lu)\n", *gen,
-		       generation);
 		io_ctl_unmap_page(io_ctl);
 		return -EIO;
 	}
@@ -318,11 +315,6 @@ static int __load_free_space_cache(struct btrfs_root *root,
 	}
 
 	if (btrfs_inode_generation(leaf, inode_item) != generation) {
-		printf("free space inode generation (%llu) did not match "
-		       "free space cache generation (%llu)\n",
-		       (unsigned long long)btrfs_inode_generation(leaf,
-								  inode_item),
-		       (unsigned long long)generation);
 		btrfs_release_path(path);
 		return 0;
 	}
@@ -434,12 +426,8 @@ int load_free_space_cache(struct btrfs_fs_info *fs_info,
 				      block_group->key.objectid);
 	btrfs_free_path(path);
 
-	if (ret < 0) {
+	if (ret < 0)
 		ret = 0;
-
-		printf("failed to load free space cache for block group %llu\n",
-			block_group->key.objectid);
-	}
 
 	return ret;
 }
