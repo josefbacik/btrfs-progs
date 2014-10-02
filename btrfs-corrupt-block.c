@@ -108,6 +108,7 @@ static void print_usage(void)
 	fprintf(stderr, "\t-K The key to corrupt in the format "
 		"<num>,<num>,<num> (must also specify -f for the field)\n");
 	fprintf(stderr, "\t-f The field in the item to corrupt\n");
+	fprintf(stderr, "\t-d Delete this item (must specify -K)\n");
 	exit(1);
 }
 
@@ -646,6 +647,39 @@ out:
 	return ret;
 }
 
+static int delete_item(struct btrfs_root *root, struct btrfs_key *key)
+{
+	struct btrfs_trans_handle *trans;
+	struct btrfs_path *path;
+	int ret;
+
+	path = btrfs_alloc_path();
+	if (!path)
+		return -ENOMEM;
+
+	trans = btrfs_start_transaction(root, 1);
+	if (IS_ERR(trans)) {
+		btrfs_free_path(path);
+		fprintf(stderr, "Couldn't start transaction %ld\n",
+			PTR_ERR(trans));
+		return PTR_ERR(trans);
+	}
+
+	ret = btrfs_search_slot(trans, root, key, path, -1, 1);
+	if (ret) {
+		if (ret > 0)
+			ret = -ENOENT;
+		fprintf(stderr, "Error searching to node %d\n", ret);
+		goto out;
+	}
+	ret = btrfs_del_item(trans, root, path);
+	btrfs_mark_buffer_dirty(path->nodes[0]);
+out:
+	btrfs_commit_transaction(trans, root);
+	btrfs_free_path(path);
+	return ret;
+}
+
 static struct option long_options[] = {
 	/* { "byte-count", 1, NULL, 'b' }, */
 	{ "logical", 1, NULL, 'l' },
@@ -661,6 +695,7 @@ static struct option long_options[] = {
 	{ "metadata-block", 1, NULL, 'm'},
 	{ "field", 1, NULL, 'f'},
 	{ "key", 1, NULL, 'K'},
+	{ "delete", 0, NULL, 'd'},
 	{ 0, 0, 0, 0}
 };
 
@@ -824,6 +859,7 @@ int main(int ac, char **av)
 	int corrupt_block_keys = 0;
 	int chunk_rec = 0;
 	int chunk_tree = 0;
+	int delete = 0;
 	u64 metadata_block = 0;
 	u64 inode = 0;
 	u64 file_extent = (u64)-1;
@@ -835,7 +871,7 @@ int main(int ac, char **av)
 
 	while(1) {
 		int c;
-		c = getopt_long(ac, av, "l:c:b:eEkuUi:f:x:m:K:", long_options,
+		c = getopt_long(ac, av, "l:c:b:eEkuUi:f:x:m:K:d", long_options,
 				&option_index);
 		if (c < 0)
 			break;
@@ -885,6 +921,9 @@ int main(int ac, char **av)
 						"%d\n", errno);
 					print_usage();
 				}
+				break;
+			case 'd':
+				delete = 1;
 				break;
 			default:
 				print_usage();
@@ -980,6 +1019,12 @@ int main(int ac, char **av)
 		if (!strlen(field))
 			print_usage();
 		ret = corrupt_metadata_block(root, metadata_block, field);
+		goto out_close;
+	}
+	if (delete) {
+		if (!key.objectid)
+			print_usage();
+		ret = delete_item(root, &key);
 		goto out_close;
 	}
 	if (key.objectid || key.offset || key.type) {
