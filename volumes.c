@@ -1015,6 +1015,7 @@ again:
 
 	map->ce.start = key.offset;
 	map->ce.size = *num_bytes;
+	RB_CLEAR_NODE(&map->ce.rb_node);
 
 	ret = insert_cache_extent(&info->mapping_tree.cache_tree, &map->ce);
 	BUG_ON(ret);
@@ -1121,6 +1122,7 @@ int btrfs_alloc_data_chunk(struct btrfs_trans_handle *trans,
 
 	map->ce.start = key.offset;
 	map->ce.size = num_bytes;
+	RB_CLEAR_NODE(&map->ce.rb_node);
 
 	ret = insert_cache_extent(&info->mapping_tree.cache_tree, &map->ce);
 	BUG_ON(ret);
@@ -1606,6 +1608,7 @@ static int read_one_chunk(struct btrfs_root *root, struct btrfs_key *key,
 
 	map->ce.start = logical;
 	map->ce.size = length;
+	RB_CLEAR_NODE(&map->ce.rb_node);
 	map->num_stripes = num_stripes;
 	map->io_width = btrfs_chunk_io_width(leaf, chunk);
 	map->io_align = btrfs_chunk_io_align(leaf, chunk);

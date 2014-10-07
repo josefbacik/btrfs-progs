@@ -49,6 +49,7 @@ static struct extent_state *alloc_extent_state(void)
 	if (!state)
 		return NULL;
 	state->cache_node.objectid = 0;
+	RB_CLEAR_NODE(&state->cache_node.rb_node);
 	state->refs = 1;
 	state->state = 0;
 	state->xprivate = 0;
@@ -586,6 +587,7 @@ static struct extent_buffer *__alloc_extent_buffer(struct extent_io_tree *tree,
 	eb->dev_bytenr = (u64)-1;
 	eb->cache_node.start = bytenr;
 	eb->cache_node.size = blocksize;
+	RB_CLEAR_NODE(&eb->cache_node.rb_node);
 	INIT_LIST_HEAD(&eb->recow);
 
 	return eb;

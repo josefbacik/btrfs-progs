@@ -100,6 +100,7 @@ alloc_cache_extent(u64 objectid, u64 start, u64 size)
 	if (!pe)
 		return pe;
 
+	RB_CLEAR_NODE(&pe->rb_node);
 	pe->objectid = objectid;
 	pe->start = start;
 	pe->size = size;
@@ -137,11 +138,13 @@ int add_cache_extent2(struct cache_tree *tree,
 
 int insert_cache_extent(struct cache_tree *tree, struct cache_extent *pe)
 {
+	BUG_ON(!RB_EMPTY_NODE(&pe->rb_node));
 	return rb_insert(&tree->root, &pe->rb_node, cache_tree_comp_nodes);
 }
 
 int insert_cache_extent2(struct cache_tree *tree, struct cache_extent *pe)
 {
+	BUG_ON(!RB_EMPTY_NODE(&pe->rb_node));
 	return rb_insert(&tree->root, &pe->rb_node, cache_tree_comp_nodes2);
 }
 
@@ -250,6 +253,13 @@ struct cache_extent *next_cache_extent(struct cache_extent *pe)
 void remove_cache_extent(struct cache_tree *tree, struct cache_extent *pe)
 {
 	rb_erase(&pe->rb_node, &tree->root);
+	RB_CLEAR_NODE(&pe->rb_node);
+}
+
+void remove_cache_extent_debug(struct cache_tree *tree, struct cache_extent *pe)
+{
+	rb_erase(&pe->rb_node, &tree->root);
+	RB_CLEAR_NODE(&pe->rb_node);
 }
 
 void cache_tree_free_extents(struct cache_tree *tree,

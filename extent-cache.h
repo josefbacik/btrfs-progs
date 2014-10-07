@@ -51,6 +51,7 @@ struct cache_extent *lookup_cache_extent(struct cache_tree *tree,
 int add_cache_extent(struct cache_tree *tree, u64 start, u64 size);
 int insert_cache_extent(struct cache_tree *tree, struct cache_extent *pe);
 void remove_cache_extent(struct cache_tree *tree, struct cache_extent *pe);
+void remove_cache_extent_debug(struct cache_tree *tree, struct cache_extent *pe);
 
 static inline int cache_tree_empty(struct cache_tree *tree)
 {

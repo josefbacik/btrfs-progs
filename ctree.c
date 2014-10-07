@@ -279,7 +279,12 @@ int __btrfs_cow_block(struct btrfs_trans_handle *trans,
 	if (IS_ERR(cow))
 		return PTR_ERR(cow);
 
+	if (buf->start == 13415158087680)
+		printf("cow len is %llu, buf len is %llu\n",
+		       (unsigned long long)cow->len,
+		       (unsigned long long)buf->len);
 	copy_extent_buffer(cow, buf, 0, 0, cow->len);
+	BUG_ON(memcmp(cow->data, buf->data, cow->len));
 	btrfs_set_header_bytenr(cow, cow->start);
 	btrfs_set_header_generation(cow, trans->transid);
 	btrfs_set_header_backref_rev(cow, BTRFS_MIXED_BACKREF_REV);
