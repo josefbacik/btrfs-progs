@@ -1622,9 +1622,10 @@ static int delete_dir_index(struct btrfs_root *root,
 	}
 
 
-	fprintf(stderr, "Deleting bad dir index [%llu,%u,%llu]\n",
+	fprintf(stderr, "Deleting bad dir index [%llu,%u,%llu] root %llu\n",
 		(unsigned long long)backref->dir,
-		BTRFS_DIR_INDEX_KEY, (unsigned long long)backref->index);
+		BTRFS_DIR_INDEX_KEY, (unsigned long long)backref->index,
+		(unsigned long long)root->objectid);
 
 	di = btrfs_lookup_dir_index(trans, root, path, backref->dir,
 				    backref->name, backref->namelen,
@@ -1637,6 +1638,13 @@ static int delete_dir_index(struct btrfs_root *root,
 			return 0;
 		return ret;
 	}
+	if (!di) {
+		fprintf(stderr, "Didn't find the di, exiting\n");
+		btrfs_free_path(path);
+		btrfs_commit_transaction(trans, root);
+		return 0;
+	}
+
 
 	ret = btrfs_delete_one_dir_name(trans, root, path, di);
 	BUG_ON(ret);
