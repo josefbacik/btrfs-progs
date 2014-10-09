@@ -1647,9 +1647,11 @@ static int delete_dir_index(struct btrfs_root *root,
 
 
 	ret = btrfs_delete_one_dir_name(trans, root, path, di);
+	fprintf(stderr, "Deleted the name\n");
 	BUG_ON(ret);
 	btrfs_free_path(path);
 	btrfs_commit_transaction(trans, root);
+	fprintf(stderr, "Committed transaction\n");
 	return ret;
 }
 
@@ -2332,12 +2334,16 @@ again:
 				err = 1;
 				goto next;
 			}
+			fprintf(stderr, "Checking root %llu\n",
+				(unsigned long long)tmp_root->objectid);
 			ret = check_fs_root(tmp_root, root_cache, &wc);
 			if (ret == -EAGAIN) {
 				free_root_recs_tree(root_cache);
 				btrfs_release_path(&path);
+				fprintf(stderr, "Restarting the fs roots check\n");
 				goto again;
 			}
+			fprintf(stderr, "done checking root %d\n", ret);
 			if (ret)
 				err = 1;
 		} else if (key.type == BTRFS_ROOT_REF_KEY ||
