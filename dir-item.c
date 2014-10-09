@@ -234,7 +234,9 @@ struct btrfs_dir_item *btrfs_lookup_dir_index(struct btrfs_trans_handle *trans,
 	key.type = BTRFS_DIR_INDEX_KEY;
 	key.offset = index;
 
+	fprintf(stderr, "doing search\n");
 	ret = btrfs_search_slot(trans, root, &key, path, ins_len, cow);
+	fprintf(stderr, "search returned %d\n", ret);
 	if (ret < 0)
 		return ERR_PTR(ret);
 	if (ret > 0)
@@ -291,12 +293,15 @@ static struct btrfs_dir_item *btrfs_match_dir_item_name(struct btrfs_root *root,
 	leaf = path->nodes[0];
 	dir_item = btrfs_item_ptr(leaf, path->slots[0], struct btrfs_dir_item);
 	total_len = btrfs_item_size_nr(leaf, path->slots[0]);
+	fprintf(stderr, "total len is %lu\n", (unsigned long)total_len);
 	while(cur < total_len) {
 		this_len = sizeof(*dir_item) +
 			btrfs_dir_name_len(leaf, dir_item) +
 			btrfs_dir_data_len(leaf, dir_item);
 		name_ptr = (unsigned long)(dir_item + 1);
 
+		fprintf(stderr, "name_ptr is %lu, this_len is %lu\n",
+			name_ptr, (unsigned long)this_len);
 		if (btrfs_dir_name_len(leaf, dir_item) == name_len &&
 		    memcmp_extent_buffer(leaf, name, name_ptr, name_len) == 0)
 			return dir_item;
