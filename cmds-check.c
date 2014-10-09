@@ -1622,16 +1622,17 @@ static int delete_dir_index(struct btrfs_root *root,
 	}
 
 
-	fprintf(stderr, "Deleting bad dir index [%llu,%u,%llu] root %llu\n",
+	fprintf(stderr, "Deleting bad dir index [%llu,%u,%llu] root %llu, name %s, namelen %d\n",
 		(unsigned long long)backref->dir,
 		BTRFS_DIR_INDEX_KEY, (unsigned long long)backref->index,
-		(unsigned long long)root->objectid);
+		(unsigned long long)root->objectid, backref->name, backref->namelen);
 
 	di = btrfs_lookup_dir_index(trans, root, path, backref->dir,
 				    backref->name, backref->namelen,
 				    backref->index, -1);
 	if (IS_ERR(di)) {
 		ret = PTR_ERR(di);
+		fprintf(stderr, "Got an error from lookup %d\n", ret);
 		btrfs_free_path(path);
 		btrfs_commit_transaction(trans, root);
 		if (ret == -ENOENT)
