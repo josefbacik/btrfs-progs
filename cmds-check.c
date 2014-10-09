@@ -1639,15 +1639,13 @@ static int delete_dir_index(struct btrfs_root *root,
 			return 0;
 		return ret;
 	}
+
 	if (!di) {
-		fprintf(stderr, "Didn't find the di, exiting\n");
-		btrfs_free_path(path);
-		btrfs_commit_transaction(trans, root);
-		return 0;
+		fprintf(stderr, "Didn't find the di, deleting item\n");
+		ret = btrfs_del_item(trans, root, path);
+	} else {
+		ret = btrfs_delete_one_dir_name(trans, root, path, di);
 	}
-
-
-	ret = btrfs_delete_one_dir_name(trans, root, path, di);
 	fprintf(stderr, "Deleted the name\n");
 	BUG_ON(ret);
 	btrfs_free_path(path);
