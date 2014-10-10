@@ -1666,10 +1666,20 @@ static int repair_inode_backrefs(struct btrfs_root *root,
 	int ret = 0;
 	int repaired = 0;
 
+	fprintf(stderr, "Checking backrefs for inode %llu, delete %d\n",
+		(unsigned long long)rec->ino, delete);
+
 	list_for_each_entry_safe(backref, tmp, &rec->backrefs, list) {
 		/* Index 0 for root dir's are special, don't mess with it */
 		if (rec->ino == root_dirid && backref->index == 0)
 			continue;
+
+		fprintf(stderr, "backref found_dir_index %d, found_inode_ref "
+			"%d, dir %llu, index %llu, name %s\n",
+			backref->found_dir_index, backref->found_inode_ref,
+			(unsigned long long)backref->dir,
+			(unsigned long long)backref->index,
+			backref->name);
 
 		if (delete && backref->found_dir_index &&
 		    !backref->found_inode_ref) {
