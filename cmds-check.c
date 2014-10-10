@@ -1545,9 +1545,6 @@ static int add_missing_dir_index(struct btrfs_root *root,
 	u32 data_size = sizeof(*dir_item) + backref->namelen;
 	int ret;
 
-	if (backref->dir == 7516 && backref->index == 111)
-		return 0;
-
 	path = btrfs_alloc_path();
 	if (!path)
 		return -ENOMEM;
