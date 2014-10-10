@@ -1551,22 +1551,14 @@ static int add_missing_dir_index(struct btrfs_root *root,
 		return PTR_ERR(trans);
 	}
 
-	fprintf(stderr, "repairing missing dir index item for inode %llu, root %llu\n",
+	fprintf(stderr, "repairing missing dir index item for inode %llu, root %llu, errors %d\n",
 	       (unsigned long long)rec->ino,
-	       (unsigned long long)root->objectid);
+	       (unsigned long long)root->objectid, backref->errors);
 	key.objectid = backref->dir;
 	key.type = BTRFS_DIR_INDEX_KEY;
 	key.offset = backref->index;
 
 	ret = btrfs_insert_empty_item(trans, root, path, &key, data_size);
-	if (ret == -EEXIST) {
-		fprintf(stderr, "Got %d from insert empty items, dir %llu, index %llu\n", ret, (unsigned long long)backref->dir, (unsigned long long)backref->index);
-		fprintf(stderr, "name is %s, namelen is %d\n", backref->name,
-			backref->namelen);
-		btrfs_free_path(path);
-		btrfs_commit_transaction(trans, root);
-		return 0;
-	}
 	BUG_ON(ret); /* Poor mans transaction abort */
 
 	leaf = path->nodes[0];
