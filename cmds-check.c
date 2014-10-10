@@ -552,6 +552,8 @@ static struct inode_backref *get_inode_backref(struct inode_record *rec,
 	struct inode_backref *backref;
 
 	list_for_each_entry(backref, &rec->backrefs, list) {
+		if (!namelen)
+			break;
 		if (backref->dir != dir || backref->namelen != namelen)
 			continue;
 		if (memcmp(name, backref->name, namelen))
@@ -995,9 +997,9 @@ static int process_dir_item(struct btrfs_root *root,
 					  key->type, error);
 		} else {
 			fprintf(stderr, "invalid location in dir item %u for "
-				" index [%llu,%u,%llu]\n", location.type,
+				" index [%llu,%u,%llu], namelen %u\n", location.type,
 				(unsigned long long)key->objectid, key->type,
-				(unsigned long long)key->offset);
+				(unsigned long long)key->offset, name_len);
 			add_inode_backref(inode_cache, BTRFS_MULTIPLE_OBJECTIDS,
 					  key->objectid, key->offset, namebuf,
 					  len, filetype, key->type, error);
