@@ -552,7 +552,7 @@ static struct inode_backref *get_inode_backref(struct inode_record *rec,
 	struct inode_backref *backref;
 
 	list_for_each_entry(backref, &rec->backrefs, list) {
-		if (!namelen)
+		if (rec->ino == BTRFS_MULTIPLE_OBJECTIDS)
 			break;
 		if (backref->dir != dir || backref->namelen != namelen)
 			continue;
