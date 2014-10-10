@@ -993,8 +993,10 @@ static int process_dir_item(struct btrfs_root *root,
 					  namebuf, len, filetype,
 					  key->type, error);
 		} else {
-			fprintf(stderr, "invalid location in dir item %u\n",
-				location.type);
+			fprintf(stderr, "invalid location in dir item %u for "
+				" index [%llu,%u,%llu]\n", location.type,
+				(unsigned long long)key->objectid, key->type,
+				(unsigned long long)key->offset);
 			add_inode_backref(inode_cache, BTRFS_MULTIPLE_OBJECTIDS,
 					  key->objectid, key->offset, namebuf,
 					  len, filetype, key->type, error);
