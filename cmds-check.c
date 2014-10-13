@@ -1689,13 +1689,59 @@ static int repair_inode_backrefs(struct btrfs_root *root,
 	return ret ? ret : repaired;
 }
 
+static int repair_inode_link_count(struct btrfs_trans_handle *trans,
+				   struct btrfs_root *root,
+				   struct btrfs_path *path,
+				   struct inode_record *rec)
+{
+	struct btrfs_inode_item *ei;
+	struct btrfs_key key;
+	int ret;
+
+	key.objectid = rec->ino;
+	key.type = BTRFS_INODE_ITEM_KEY;
+	key.offset = (u64)-1;
+
+	ret = btrfs_search_slot(trans, root, &key, path, 0, 1);
+	if (ret < 0)
+		goto out;
+	if (ret) {
+		if (!path->slots[0]) {
+			ret = -ENOENT;
+			goto out;
+		}
+		path->slots[0]--;
+		ret = 0;
+	}
+	btrfs_item_key_to_cpu(path->nodes[0], &key, path->slots[0]);
+	if (key.objectid != rec->ino) {
+		ret = -ENOENT;
+		goto out;
+	}
+
+	ei = btrfs_item_ptr(path->nodes[0], path->slots[0],
+			    struct btrfs_inode_item);
+	btrfs_set_inode_nlink(path->nodes[0], ei, rec->found_link);
+	btrfs_mark_buffer_dirty(path->nodes[0]);
+	rec->errors &= ~I_ERR_LINK_COUNT_WRONG;
+	fprintf(stderr, "reset nlink for inode %llu, root %llu\n",
+		(unsigned long long)rec->ino,
+		(unsigned long long)root->root_key.objectid);
+	if (!rec->found_link)
+		rec->errors |= I_ERR_NO_ORPHAN_ITEM;
+out:
+	btrfs_release_path(path);
+	return ret;
+}
+
 static int try_repair_inode(struct btrfs_root *root, struct inode_record *rec)
 {
 	struct btrfs_trans_handle *trans;
 	struct btrfs_path *path;
 	int ret = 0;
 
-	if (!(rec->errors & (I_ERR_DIR_ISIZE_WRONG | I_ERR_NO_ORPHAN_ITEM)))
+	if (!(rec->errors & (I_ERR_DIR_ISIZE_WRONG | I_ERR_NO_ORPHAN_ITEM |
+			     I_ERR_LINK_COUNT_WRONG)))
 		return rec->errors;
 
 	path = btrfs_alloc_path();
@@ -1708,7 +1754,9 @@ static int try_repair_inode(struct btrfs_root *root, struct inode_record *rec)
 		return PTR_ERR(trans);
 	}
 
-	if (rec->errors & I_ERR_DIR_ISIZE_WRONG)
+	if (rec->errors & I_ERR_LINK_COUNT_WRONG)
+		ret = repair_inode_link_count(trans, root, path, rec);
+	if (!ret && rec->errors & I_ERR_DIR_ISIZE_WRONG)
 		ret = repair_inode_isize(trans, root, path, rec);
 	if (!ret && rec->errors & I_ERR_NO_ORPHAN_ITEM)
 		ret = repair_inode_orphan_item(trans, root, path, rec);
@@ -1826,6 +1874,10 @@ static int check_inode_recs(struct btrfs_root *root,
 			}
 		}
 
+		if (!rec->found_inode_item)
+			rec->errors |= I_ERR_NO_INODE_ITEM;
+		if (rec->found_link != rec->nlink)
+			rec->errors |= I_ERR_LINK_COUNT_WRONG;
 		if (repair) {
 			ret = try_repair_inode(root, rec);
 			if (ret == 0 && can_free_inode_rec(rec)) {
@@ -1836,10 +1888,6 @@ static int check_inode_recs(struct btrfs_root *root,
 		}
 
 		error++;
-		if (!rec->found_inode_item)
-			rec->errors |= I_ERR_NO_INODE_ITEM;
-		if (rec->found_link != rec->nlink)
-			rec->errors |= I_ERR_LINK_COUNT_WRONG;
 		fprintf(stderr, "root %llu inode %llu errors %x",
 			(unsigned long long) root->root_key.objectid,
 			(unsigned long long) rec->ino, rec->errors);
