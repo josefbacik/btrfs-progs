@@ -662,6 +662,7 @@ struct extent_buffer *alloc_extent_buffer(struct extent_io_tree *tree,
 {
 	struct extent_buffer *eb;
 	struct cache_extent *cache;
+	static int count = 0;
 
 	cache = lookup_cache_extent(&tree->cache, bytenr, blocksize);
 	if (cache && cache->start == bytenr &&
@@ -687,6 +688,9 @@ struct extent_buffer *alloc_extent_buffer(struct extent_io_tree *tree,
 		}
 		list_add_tail(&eb->lru, &tree->lru);
 		tree->cache_size += blocksize;
+		if (!(count % 1000))
+			fprintf(stderr, "cache size is %llu\n", (unsigned long long)tree->cache_size);
+		count++;
 		free_some_buffers(tree);
 	}
 	return eb;
