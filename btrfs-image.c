@@ -66,11 +66,14 @@ struct meta_cluster {
 #define ITEMS_PER_CLUSTER ((BLOCK_SIZE - sizeof(struct meta_cluster)) / \
 			   sizeof(struct meta_cluster_item))
 
+static u64 *devids = NULL;
+
 struct fs_chunk {
 	u64 logical;
-	u64 physical;
 	u64 bytes;
+	u64 stripe_len;
 	struct rb_node n;
+	u64 physical[0];
 };
 
 struct async_work {
@@ -120,7 +123,8 @@ struct name {
 
 struct mdrestore_struct {
 	FILE *in;
-	FILE *out;
+	FILE *out[];
+	int dev_cnt;
 
 	pthread_t *threads;
 	size_t num_threads;
@@ -1763,9 +1767,9 @@ static void mdrestore_destroy(struct mdrestore_struct *mdres, int num_threads)
 }
 
 static int mdrestore_init(struct mdrestore_struct *mdres,
-			  FILE *in, FILE *out, int old_restore,
-			  int num_threads, int fixup_offset,
-			  struct btrfs_fs_info *info, int multi_devices)
+			  FILE *in, FILE **out, int dev_cnt, int old_restore,
+			  int num_threads, struct btrfs_fs_info *info,
+			  int multi_devices)
 {
 	int i, ret = 0;
 
@@ -1775,9 +1779,9 @@ static int mdrestore_init(struct mdrestore_struct *mdres,
 	INIT_LIST_HEAD(&mdres->list);
 	mdres->in = in;
 	mdres->out = out;
+	mdres->dev_cnt = dev_cnt;
 	mdres->old_restore = old_restore;
 	mdres->chunk_tree.rb_node = NULL;
-	mdres->fixup_offset = fixup_offset;
 	mdres->info = info;
 	mdres->multi_devices = multi_devices;
 
@@ -1929,6 +1933,53 @@ static int wait_for_worker(struct mdrestore_struct *mdres)
 	return ret;
 }
 
+static int devid_to_index(u64 devid, int dev_cnt)
+{
+	int ret;
+
+	for (ret = 0; ret < dev_cnt; ret++) {
+		if (devids[ret] == 0) {
+			devids[ret] = devid;
+			break;
+		} else if (devids[ret] == devid) {
+			break;
+		}
+	}
+
+	return ret;
+}
+
+static int add_fs_chunks(struct mdrestore_struct *mdres,
+			 struct btrfs_chunk *chunk, u64 logical)
+{
+	struct fs_chunk *fs_chunk;
+	int i;
+
+	fs_chunk = malloc(sizeof(struct fs_chunk) +
+			  (sizeof(u64) * mdres->dev_cnt));
+	if (!fs_chunk)
+		return -ENOMEM;
+	memset(fs_chunk, 0, sizeof(*fs_chunk) +
+	       (sizeof(u64) * mdres->dev_cnt));
+
+	if (!mdres->multi_devices) {
+		fs_chunk->logical = logical;
+		fs_chunk->physical[0] = btrfs_stack_stripe_offset(chunk->stripe);
+		fs_chunk->bytes = btrfs_stack_chunk_length(chunk);
+		fs_chunk->stripe_len = fs_chunk->bytes;
+		tree_insert(&mdres->chunk_tree, &fs_chunk->n, chunk_cmp);
+		return 0;
+	}
+
+	for (i = 0; i < btrfs_stack_chunk_num_stripes(chunk); i++) {
+		struct btrfs_stripe *stripe;
+		int index;
+
+		stripe = btrfs_stripe_nr(chunk, i);
+		index = devid_to_index(btrfs_stack_stripe_devid(stripe),
+				       mdres->dev_cnt);
+}
+
 static int read_chunk_block(struct mdrestore_struct *mdres, u8 *buffer,
 			    u64 bytenr, u64 item_bytenr, u32 bufsize,
 			    u64 cluster_bytenr)
@@ -1936,6 +1987,14 @@ static int read_chunk_block(struct mdrestore_struct *mdres, u8 *buffer,
 	struct extent_buffer *eb;
 	int ret = 0;
 	int i;
+
+	if (devids == NULL && mdres->multi_devices) {
+		devids = calloc(mdres->devcnt, sizeof(u64));
+		if (!devids) {
+			ret = -ENOMEM;
+			goto out;
+		}
+	}
 
 	eb = alloc_dummy_eb(bytenr, mdres->leafsize);
 	if (!eb) {
@@ -1998,6 +2057,7 @@ static int read_chunk_block(struct mdrestore_struct *mdres, u8 *buffer,
 		read_extent_buffer(eb, &chunk, btrfs_item_ptr_offset(eb, i),
 				   sizeof(chunk));
 
+		ret = add_fs_chunks(mdres, &chunk, key.offset);
 		fs_chunk->logical = key.offset;
 		fs_chunk->physical = btrfs_stack_stripe_offset(&chunk.stripe);
 		fs_chunk->bytes = btrfs_stack_chunk_length(&chunk);
@@ -2250,9 +2310,9 @@ static int build_chunk_tree(struct mdrestore_struct *mdres,
 	return search_for_chunk_blocks(mdres, chunk_root_bytenr, 0);
 }
 
-static int __restore_metadump(const char *input, FILE *out, int old_restore,
-			      int num_threads, int fixup_offset,
-			      const char *target, int multi_devices)
+static int restore_metadump(const char *input, FILE **out, int dev_cnt,
+			    int old_restore, int num_threads,
+			    int multi_devices)
 {
 	struct meta_cluster *cluster = NULL;
 	struct meta_cluster_header *header;
@@ -2272,20 +2332,6 @@ static int __restore_metadump(const char *input, FILE *out, int old_restore,
 		}
 	}
 
-	/* NOTE: open with write mode */
-	if (fixup_offset) {
-		BUG_ON(!target);
-		info = open_ctree_fs_info(target, 0, 0,
-					  OPEN_CTREE_WRITES |
-					  OPEN_CTREE_RESTORE |
-					  OPEN_CTREE_PARTIAL);
-		if (!info) {
-			fprintf(stderr, "%s: open ctree failed\n", __func__);
-			ret = -EIO;
-			goto failed_open;
-		}
-	}
-
 	cluster = malloc(BLOCK_SIZE);
 	if (!cluster) {
 		fprintf(stderr, "Error allocating cluster\n");
@@ -2293,14 +2339,14 @@ static int __restore_metadump(const char *input, FILE *out, int old_restore,
 		goto failed_info;
 	}
 
-	ret = mdrestore_init(&mdrestore, in, out, old_restore, num_threads,
-			     fixup_offset, info, multi_devices);
+	ret = mdrestore_init(&mdrestore, in, out, dev_cnt, old_restore,
+			     num_threads, info, multi_devices);
 	if (ret) {
 		fprintf(stderr, "Error initing mdrestore %d\n", ret);
 		goto failed_cluster;
 	}
 
-	if (!multi_devices && !old_restore) {
+	if (!old_restore) {
 		ret = build_chunk_tree(&mdrestore, cluster);
 		if (ret)
 			goto out;
@@ -2347,19 +2393,6 @@ failed_open:
 	if (in != stdin)
 		fclose(in);
 	return ret;
-}
-
-static int restore_metadump(const char *input, FILE *out, int old_restore,
-			    int num_threads, int multi_devices)
-{
-	return __restore_metadump(input, out, old_restore, num_threads, 0, NULL,
-				  multi_devices);
-}
-
-static int fixup_metadump(const char *input, FILE *out, int num_threads,
-			  const char *target)
-{
-	return __restore_metadump(input, out, 0, num_threads, 1, target, 1);
 }
 
 static int update_disk_super_on_device(struct btrfs_fs_info *info,
@@ -2483,7 +2516,7 @@ int main(int argc, char *argv[])
 	int sanitize = 0;
 	int dev_cnt = 0;
 	int usage_error = 0;
-	FILE *out;
+	FILE **out;
 
 	while (1) {
 		int c = getopt(argc, argv, "rc:t:oswm");
@@ -2551,16 +2584,26 @@ int main(int argc, char *argv[])
 	if (usage_error)
 		print_usage();
 
-	source = argv[optind];
-	target = argv[optind + 1];
+	out = calloc(dev_cnt, sizeof(FILE *));
+	if (!out) {
+		fprintf(stderr, "Error allocating out fd's\n");
+		exit(1);
+	}
 
-	if (create && !strcmp(target, "-")) {
-		out = stdout;
+	source = argv[optind];
+	optind++;
+
+	if (create && !strcmp(argv[optind], "-")) {
+		out[0] = stdout;
 	} else {
-		out = fopen(target, "w+");
-		if (!out) {
-			perror("unable to create target file");
-			exit(1);
+		int i;
+
+		for (i = 0; i < dev_cnt; i++) {
+			out[i] = fopen(argv[optind + i], "w+");
+			if (!out[i]) {
+				perror("unable to open target file");
+				exit(1);
+			}
 		}
 	}
 
@@ -2580,10 +2623,10 @@ int main(int argc, char *argv[])
 			fprintf(stderr,
 		"WARNING: The device is mounted. Make sure the filesystem is quiescent.\n");
 
-		ret = create_metadump(source, out, num_threads,
+		ret = create_metadump(source, out[0], num_threads,
 				      compress_level, sanitize, walk_trees);
 	} else {
-		ret = restore_metadump(source, out, old_restore, 1,
+		ret = restore_metadump(source, out, dev_cnt, old_restore, 1,
 				       multi_devices);
 	}
 	if (ret) {
@@ -2592,58 +2635,14 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 
-	 /* extended support for multiple devices */
-	if (!create && multi_devices) {
-		struct btrfs_fs_info *info;
-		u64 total_devs;
-		int i;
-
-		info = open_ctree_fs_info(target, 0, 0,
-					  OPEN_CTREE_PARTIAL |
-					  OPEN_CTREE_RESTORE);
-		if (!info) {
-			int e = errno;
-			fprintf(stderr, "unable to open %s error = %s\n",
-				target, strerror(e));
-			return 1;
-		}
-
-		total_devs = btrfs_super_num_devices(info->super_copy);
-		if (total_devs != dev_cnt) {
-			printk("it needs %llu devices but has only %d\n",
-				total_devs, dev_cnt);
-			close_ctree(info->chunk_root);
-			goto out;
-		}
-
-		/* update super block on other disks */
-		for (i = 2; i <= dev_cnt; i++) {
-			ret = update_disk_super_on_device(info,
-					argv[optind + i], (u64)i);
-			if (ret) {
-				printk("update disk super failed devid=%d (error=%d)\n",
-					i, ret);
-				close_ctree(info->chunk_root);
-				exit(1);
-			}
-		}
-
-		close_ctree(info->chunk_root);
-
-		/* fix metadata block to map correct chunk */
-		ret = fixup_metadump(source, out, 1, target);
-		if (ret) {
-			fprintf(stderr, "fix metadump failed (error=%d)\n",
-				ret);
-			exit(1);
-		}
-	}
-
 out:
 	if (out == stdout) {
-		fflush(out);
+		fflush(out[0]);
 	} else {
-		fclose(out);
+		int i;
+
+		for (i = 0; i < dev_cnt; i++)
+			fclose(out[i]);
 		if (ret && create) {
 			int unlink_ret;
 
@@ -2654,6 +2653,7 @@ out:
 					strerror(errno));
 		}
 	}
+	free(out);
 
 	return !!ret;
 }
