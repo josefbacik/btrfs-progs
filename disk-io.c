@@ -881,7 +881,7 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 	ret = find_and_setup_root(root, fs_info, BTRFS_EXTENT_TREE_OBJECTID,
 				  fs_info->extent_root);
 	if (ret) {
-		printk("Couldn't setup extent tree\n");
+		printk("Couldn't setup extent tree %d\n", ret);
 		if (!(flags & OPEN_CTREE_PARTIAL))
 			return -EIO;
 		/* Need a blank node here just so we don't screw up in the
@@ -921,7 +921,8 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 	ret = find_and_setup_log_root(root, fs_info, sb);
 	if (ret) {
 		printk("Couldn't setup log root tree\n");
-		return -EIO;
+		if (!(flags & OPEN_CTREE_PARTIAL))
+			return -EIO;
 	}
 
 	fs_info->generation = generation;
