@@ -1873,8 +1873,11 @@ static int check_inode_recs(struct btrfs_root *root,
 				continue;
 			}
 
-			if (list_empty(&rec->backrefs))
+			if (list_empty(&rec->backrefs)) {
+				if (!rec->found_inode_item)
+					fprintf(stderr, "wtf?\n");
 				continue;
+			}
 
 			ret = repair_inode_backrefs(root, rec, inode_cache,
 						    stage == 1);
