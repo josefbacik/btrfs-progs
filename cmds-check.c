@@ -7291,8 +7291,6 @@ int cmd_check(int argc, char **argv)
 
 	fprintf(stderr, "checking root refs\n");
 	ret = check_root_refs(root, &root_cache);
-	if (ret)
-		goto out;
 
 	while (repair && !list_empty(&root->fs_info->recow_ebs)) {
 		struct extent_buffer *eb;
