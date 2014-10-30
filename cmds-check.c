@@ -1874,7 +1874,7 @@ static int check_inode_recs(struct btrfs_root *root,
 			}
 
 			if (list_empty(&rec->backrefs)) {
-				if (!rec->found_inode_item) {
+				if (!rec->found_inode_item && stage == 2) {
 					fprintf(stderr, "fucked up inode, recreating\n");
 					ret = create_inode_item(root, rec, NULL,
 								rec->ino == root_dirid);
