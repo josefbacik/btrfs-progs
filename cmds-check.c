@@ -1875,7 +1875,14 @@ static int check_inode_recs(struct btrfs_root *root,
 
 			if (list_empty(&rec->backrefs)) {
 				if (!rec->found_inode_item)
-					fprintf(stderr, "wtf?\n");
+					fprintf(stderr, "ino %llu inode_item "
+						"%d, dir_item %d, file_extent "
+						"%d, csum_item %d\n",
+						rec->ino,
+						rec->found_inode_item,
+						rec->found_dir_item,
+						rec->found_file_extent,
+						rec->found_csum_item);
 				continue;
 			}
 
