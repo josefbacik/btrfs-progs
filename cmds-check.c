@@ -1447,20 +1447,34 @@ static int check_root_dir(struct inode_record *rec)
 	struct inode_backref *backref;
 	int ret = -1;
 
-	if (!rec->found_inode_item || rec->errors)
+	if (!rec->found_inode_item || rec->errors) {
+		fprintf(stderr, "root item %d, errors %d", rec->found_inode_item,
+			rec->errors);
+		print_inode_error(rec->errors);
 		goto out;
-	if (rec->nlink != 1 || rec->found_link != 0)
+	}
+	if (rec->nlink != 1 || rec->found_link != 0) {
+		fprintf(stderr, "1\n");
 		goto out;
-	if (list_empty(&rec->backrefs))
+	}
+	if (list_empty(&rec->backrefs)) {
+		fprintf(stderr, "2\n");
 		goto out;
+	}
 	backref = list_entry(rec->backrefs.next, struct inode_backref, list);
-	if (!backref->found_inode_ref)
+	if (!backref->found_inode_ref) {
+		fprintf(stderr, "3\n");
 		goto out;
+	}
 	if (backref->index != 0 || backref->namelen != 2 ||
-	    memcmp(backref->name, "..", 2))
+	    memcmp(backref->name, "..", 2)) {
+		fprintf(stderr, "4\n");
 		goto out;
-	if (backref->found_dir_index || backref->found_dir_item)
+	}
+	if (backref->found_dir_index || backref->found_dir_item) {
+		fprintf(stderr, "5\n");
 		goto out;
+	}
 	ret = 0;
 out:
 	return ret;
