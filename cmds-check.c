@@ -7412,8 +7412,10 @@ again:
 
 	err = check_chunks(&chunk_cache, &block_group_cache,
 			   &dev_extent_cache, NULL, NULL, NULL, 0);
-	if (err && !ret)
+	if (err && !ret) {
+		printf("chunks errored out %d\n", err);
 		ret = err;
+	}
 
 	err = check_devices(&dev_cache, &dev_extent_cache);
 	if (err && !ret)
@@ -8629,7 +8631,7 @@ int cmd_check(int argc, char **argv)
 	fprintf(stderr, "checking extents\n");
 	ret = check_chunks_and_extents(root);
 	if (ret)
-		fprintf(stderr, "Errors found in extent allocation tree or chunk allocation\n");
+		fprintf(stderr, "Errors found in extent allocation tree or chunk allocation %d\n", ret);
 
 	ret = repair_root_items(info);
 	if (ret < 0)
