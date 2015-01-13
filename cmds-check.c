@@ -1489,6 +1489,7 @@ static int walk_down_tree(struct btrfs_root *root, struct btrfs_path *path,
 						path->nodes[*level]->start,
 						root->leafsize, *level);
 				err = -EIO;
+				fprintf(stderr, "corrupt extent at %llu\n", path->nodes[*level]->start);
 				goto out;
 			}
 		}
@@ -1504,6 +1505,7 @@ static int walk_down_tree(struct btrfs_root *root, struct btrfs_path *path,
 		else
 			status = btrfs_check_node(root, NULL, next);
 		if (status != BTRFS_TREE_BLOCK_CLEAN) {
+			fprintf(stderr, "node failed check %llu, level %d\n", next->start, btrfs_header_level(next));
 			free_extent_buffer(next);
 			err = -EIO;
 			goto out;
@@ -2947,8 +2949,10 @@ static int check_fs_root(struct btrfs_root *root,
 		status = btrfs_check_leaf(root, NULL, root->node);
 	else
 		status = btrfs_check_node(root, NULL, root->node);
-	if (status != BTRFS_TREE_BLOCK_CLEAN)
+	if (status != BTRFS_TREE_BLOCK_CLEAN) {
+		fprintf(stderr, "root node failed for %llu, block %llu\n", root->objectid, root->node->start);
 		return -EIO;
+	}
 
 	if (btrfs_root_refs(root_item) > 0 ||
 	    btrfs_disk_key_objectid(&root_item->drop_progress) == 0) {
@@ -4838,9 +4842,10 @@ static int read_extent_data(struct btrfs_root *root, char *data,
 		*len = max_len;
 
 	ret = pread64(device->fd, data, *len, multi->stripes[0].physical);
-	if (ret != *len)
+	if (ret != *len) {
+		fprintf(stderr, "pread failed\n");
 		ret = -EIO;
-	else
+	} else
 		ret = 0;
 err:
 	kfree(multi);
@@ -5242,6 +5247,7 @@ static int calc_extent_flag(struct btrfs_root *root,
 			if (i == 0) {
 				new_buf = read_tree_block(root, ptr, size, 0);
 				if (!extent_buffer_uptodate(new_buf)) {
+					fprintf(stderr, "read tree block failed for %llu\n", new_buf->start);
 					free_extent_buffer(new_buf);
 					ret = -EIO;
 					return ret;
@@ -7199,6 +7205,7 @@ static int deal_root_from_list(struct list_head *list,
 		buf = read_tree_block(root->fs_info->tree_root,
 				      rec->bytenr, rec->level_size, 0);
 		if (!extent_buffer_uptodate(buf)) {
+			fprintf(stderr, "read tree block1 failed %llu\n", buf->start);
 			free_extent_buffer(buf);
 			ret = -EIO;
 			break;
