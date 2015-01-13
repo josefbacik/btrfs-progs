@@ -2624,8 +2624,10 @@ static int merge_root_recs(struct btrfs_root *root,
 		free(node);
 
 		ret = is_child_root(root, root->objectid, rec->ino);
-		if (ret < 0)
+		if (ret < 0) {
+			fprintf(stderr, "got %d from is_child_root\n", ret);
 			break;
+		}
 		else if (ret == 0)
 			goto skip;
 
@@ -3385,6 +3387,7 @@ static int record_bad_block_io(struct btrfs_fs_info *info,
 	struct cache_extent *cache;
 	struct btrfs_key key;
 
+	fprintf(stderr, "bad block io %llu\n", start);
 	cache = lookup_cache_extent(extent_cache, start, len);
 	if (!cache)
 		return 0;
@@ -5382,8 +5385,10 @@ static int run_next_block(struct btrfs_trans_handle *trans,
 		ret = btrfs_lookup_extent_info(NULL, root, bytenr,
 				       btrfs_header_level(buf), 1, NULL,
 				       &flags);
-		if (ret < 0)
+		if (ret < 0) {
+			fprintf(stderr, "bytenr %llu no extent info %d\n", bytenr, ret);
 			goto out;
+		}
 	} else {
 		flags = 0;
 		ret = calc_extent_flag(root, extent_cache, buf, ri, &flags);
@@ -5400,8 +5405,10 @@ static int run_next_block(struct btrfs_trans_handle *trans,
 	}
 
 	ret = check_block(trans, root, extent_cache, buf, flags);
-	if (ret)
+	if (ret) {
+		fprintf(stderr, "bad block %llu\n", buf->start);
 		goto out;
+	}
 
 	if (btrfs_is_leaf(buf)) {
 		btree_space_waste += btrfs_leaf_free_space(root, buf);
@@ -7226,8 +7233,10 @@ static int deal_root_from_list(struct list_head *list,
 					     chunk_cache, dev_cache,
 					     block_group_cache,
 					     dev_extent_cache, rec);
-			if (ret != 0)
+			if (ret != 0) {
+				fprintf(stderr, "run_next_block1 %d\n", ret);
 				break;
+			}
 		}
 skip:
 		free_extent_buffer(buf);
@@ -7244,6 +7253,8 @@ skip:
 		if (ret != 0) {
 			if (ret > 0)
 				ret = 0;
+			else
+				fprintf(stderr, "run_next_block %d\n", ret);
 			break;
 		}
 	}
@@ -7317,30 +7328,39 @@ again:
 	ret = add_root_item_to_list(&normal_trees, root1->root_key.objectid,
 				    root1->node->start, level, 0,
 				    btrfs_level_size(root1, level), NULL);
-	if (ret < 0)
+	if (ret < 0) {
+		fprintf(stderr, "add_root_item_to_list %d\n", ret);
 		goto out;
+	}
 	root1 = root->fs_info->chunk_root;
 	level = btrfs_header_level(root1->node);
 	ret = add_root_item_to_list(&normal_trees, root1->root_key.objectid,
 				    root1->node->start, level, 0,
 				    btrfs_level_size(root1, level), NULL);
-	if (ret < 0)
+	if (ret < 0) {
+		fprintf(stderr, "add_root_item_to_list1 %d\n", ret);
 		goto out;
+	}
 	btrfs_init_path(&path);
 	key.offset = 0;
 	key.objectid = 0;
 	btrfs_set_key_type(&key, BTRFS_ROOT_ITEM_KEY);
 	ret = btrfs_search_slot(NULL, root->fs_info->tree_root,
 					&key, &path, 0, 0);
-	if (ret < 0)
+	if (ret < 0) {
+		fprintf(stderr, "btrfs_search_slot %d\n", ret);
 		goto out;
+	}
 	while(1) {
 		leaf = path.nodes[0];
 		slot = path.slots[0];
 		if (slot >= btrfs_header_nritems(path.nodes[0])) {
 			ret = btrfs_next_leaf(root, &path);
-			if (ret != 0)
+			if (ret != 0) {
+				if (ret < 0)
+					fprintf(stderr, "btrfs_next_leaf %d\n", ret);
 				break;
+			}
 			leaf = path.nodes[0];
 			slot = path.slots[0];
 		}
@@ -7357,8 +7377,10 @@ again:
 						found_key.objectid,
 						btrfs_root_bytenr(&ri), level,
 						0, level_size, NULL);
-				if (ret < 0)
+				if (ret < 0) {
+					fprintf(stderr, "add_root_item_to_list2 %d\n", ret);
 					goto out;
+				}
 			} else {
 				level = btrfs_root_level(&ri);
 				level_size = btrfs_level_size(root, level);
@@ -7370,8 +7392,10 @@ again:
 						btrfs_root_bytenr(&ri),
 						level, ri.drop_level,
 						level_size, &found_key);
-				if (ret < 0)
+				if (ret < 0) {
+					fprintf(stderr, "add_root_item_to_list3 %d\n", ret);
 					goto out;
+				}
 			}
 		}
 		path.slots[0]++;
@@ -7382,15 +7406,19 @@ again:
 				  &reada, &nodes, &extent_cache,
 				  &chunk_cache, &dev_cache, &block_group_cache,
 				  &dev_extent_cache);
-	if (ret < 0)
+	if (ret < 0) {
+		fprintf(stderr, "deal_root_from_list %d\n", ret);
 		goto out;
+	}
 	ret = deal_root_from_list(&dropping_trees, trans, root,
 				  bits, bits_nr, &pending, &seen,
 				  &reada, &nodes, &extent_cache,
 				  &chunk_cache, &dev_cache, &block_group_cache,
 				  &dev_extent_cache);
-	if (ret < 0)
+	if (ret < 0) {
+		fprintf(stderr, "deal_root_from_list1 %d\n", ret);
 		goto out;
+	}
 	if (ret >= 0)
 		ret = check_extent_refs(trans, root, &extent_cache);
 	if (ret == -EAGAIN) {
@@ -7425,10 +7453,14 @@ again:
 	}
 
 	err = check_devices(&dev_cache, &dev_extent_cache);
-	if (err && !ret)
+	if (err && !ret) {
+		fprintf(stderr, "check_devices %d\n", err);
 		ret = err;
+	}
 
 out:
+	if (ret)
+		fprintf(stderr, "check_chunks_and_extents returning %d\n", ret);
 	if (trans) {
 		err = btrfs_commit_transaction(trans, root);
 		if (!ret)
