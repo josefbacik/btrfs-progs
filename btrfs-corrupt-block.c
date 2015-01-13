@@ -112,6 +112,7 @@ static void print_usage(void)
 		"to corrupt and a root+key for the item)\n");
 	fprintf(stderr, "\t-D Corrupt a dir item, must specify key and field\n");
 	fprintf(stderr, "\t-d Delete this item (must specify -K)\n");
+	fprintf(stderr, "\t-r Operate on this root (only works with -d)\n");
 	exit(1);
 }
 
@@ -863,6 +864,7 @@ static struct option long_options[] = {
 	{ "item", 0, NULL, 'I'},
 	{ "dir-item", 0, NULL, 'D'},
 	{ "delete", 0, NULL, 'd'},
+	{ "root", 0, NULL, 'r'},
 	{ 0, 0, 0, 0}
 };
 
@@ -1032,6 +1034,7 @@ int main(int ac, char **av)
 	u64 metadata_block = 0;
 	u64 inode = 0;
 	u64 file_extent = (u64)-1;
+	u64 root_objectid = 0;
 	char field[FIELD_BUF_LEN];
 
 	field[0] = '\0';
@@ -1040,8 +1043,8 @@ int main(int ac, char **av)
 
 	while(1) {
 		int c;
-		c = getopt_long(ac, av, "l:c:b:eEkuUi:f:x:m:K:IDd", long_options,
-				&option_index);
+		c = getopt_long(ac, av, "l:c:b:eEkuUi:f:x:m:K:IDdr:",
+				long_options, &option_index);
 		if (c < 0)
 			break;
 		switch(c) {
@@ -1100,6 +1103,9 @@ int main(int ac, char **av)
 				break;
 			case 'd':
 				delete = 1;
+				break;
+			case 'r':
+				root_objectid = arg_strtou64(optarg);
 				break;
 			default:
 				print_usage();
@@ -1209,9 +1215,25 @@ int main(int ac, char **av)
 		ret = corrupt_btrfs_item(root, &key, field);
 	}
 	if (delete) {
+		struct btrfs_root *target = root;
+
 		if (!key.objectid)
 			print_usage();
-		ret = delete_item(root, &key);
+		if (root_objectid) {
+			struct btrfs_key root_key;
+
+			root_key.objectid = root_objectid;
+			root_key.type = BTRFS_ROOT_ITEM_KEY;
+			root_key.offset = (u64)-1;
+
+			target = btrfs_read_fs_root(root->fs_info, &root_key);
+			if (IS_ERR(target)) {
+				fprintf(stderr, "Couldn't find root %llu\n",
+					(unsigned long long)root_objectid);
+				print_usage();
+			}
+		}
+		ret = delete_item(target, &key);
 		goto out_close;
 	}
 	if (key.objectid || key.offset || key.type) {
