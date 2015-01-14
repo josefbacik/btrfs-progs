@@ -7226,10 +7226,8 @@ static int deal_root_from_list(struct list_head *list,
 					     chunk_cache, dev_cache,
 					     block_group_cache,
 					     dev_extent_cache, rec);
-			if (ret != 0) {
-				fprintf(stderr, "run_next_block1 %d\n", ret);
+			if (ret != 0)
 				break;
-			}
 		}
 		free_extent_buffer(buf);
 		list_del(&rec->list);
