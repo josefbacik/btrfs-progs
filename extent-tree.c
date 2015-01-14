@@ -1509,7 +1509,7 @@ again:
 	if (ret != 0) {
 		fprintf(stderr, "didnt find %llu-%u-%llu\n",
 			key.objectid, key.type, key.offset);
-		btrfs_print_leaf(root->fs_info->extent_root, path->nodes[0]);
+		//btrfs_print_leaf(root->fs_info->extent_root, path->nodes[0]);
 		ret = -EIO;
 		goto out;
 	}
