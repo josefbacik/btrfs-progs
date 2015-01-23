@@ -56,6 +56,7 @@ struct extent_io_tree {
 	struct cache_tree cache;
 	struct list_head lru;
 	u64 cache_size;
+	int debug;
 };
 
 struct extent_state {

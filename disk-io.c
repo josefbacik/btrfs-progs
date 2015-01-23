@@ -43,8 +43,8 @@ static int check_tree_block(struct btrfs_root *root, struct extent_buffer *buf)
 	int ret = 1;
 
 	if (buf->start != btrfs_header_bytenr(buf)) {
-		printk("Check tree block failed, want=%Lu, have=%Lu\n",
-		       buf->start, btrfs_header_bytenr(buf));
+//		printk("Check tree block failed, want=%Lu, have=%Lu\n",
+//		       buf->start, btrfs_header_bytenr(buf));
 		return ret;
 	}
 
@@ -390,6 +390,7 @@ static int update_cowonly_root(struct btrfs_trans_handle *trans,
 	u64 old_root_bytenr;
 	struct btrfs_root *tree_root = root->fs_info->tree_root;
 
+	fprintf(stderr, "update cowonly root %llu\n", root->objectid);
 	btrfs_write_dirty_block_groups(trans, root);
 	while(1) {
 		old_root_bytenr = btrfs_root_bytenr(&root->root_item);
@@ -473,6 +474,7 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans,
 	int ret = 0;
 	struct btrfs_fs_info *fs_info = root->fs_info;
 
+	fprintf(stderr, "committing transaction\n");
 	if (root->commit_root == root->node)
 		goto commit_tree;
 	if (root == root->fs_info->tree_root)
@@ -760,6 +762,7 @@ struct btrfs_fs_info *btrfs_new_fs_info(int writable, u64 sb_bytenr)
 
 	extent_io_tree_init(&fs_info->extent_cache);
 	extent_io_tree_init(&fs_info->free_space_cache);
+	fs_info->free_space_cache.debug = 1;
 	extent_io_tree_init(&fs_info->block_group_cache);
 	extent_io_tree_init(&fs_info->pinned_extents);
 	extent_io_tree_init(&fs_info->pending_del);

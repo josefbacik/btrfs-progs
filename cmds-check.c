@@ -59,6 +59,8 @@ static int no_holes = 0;
 static int init_extent_tree = 0;
 static int check_data_csum = 0;
 
+#define LOW_SPACE_THRESHOLD (1 * 1024 * 1024)
+
 struct extent_backref {
 	struct list_head list;
 	unsigned int is_data:1;
@@ -1252,7 +1254,16 @@ static int process_file_extent(struct btrfs_root *root,
 	}
 	rec->extent_end = key->offset + num_bytes;
 
-	if (disk_bytenr > 0) {
+	/*
+	 * The data reloc tree will copy full extents into its inode and then
+	 * copy the corresponding csums.  Because the extent it copied could be
+	 * a preallocated extent that hasn't been written to yet there may be no
+	 * csums to copy, ergo we won't have csums for our file extent.  This is
+	 * ok so just don't bother checking csums if the inode belongs to the
+	 * data reloc tree.
+	 */
+	if (disk_bytenr > 0 &&
+	    btrfs_header_owner(eb) != BTRFS_DATA_RELOC_TREE_OBJECTID) {
 		u64 found;
 		if (btrfs_file_extent_compression(eb, fi))
 			num_bytes = btrfs_file_extent_disk_num_bytes(eb, fi);
@@ -1265,8 +1276,12 @@ static int process_file_extent(struct btrfs_root *root,
 		if (extent_type == BTRFS_FILE_EXTENT_REG) {
 			if (found > 0)
 				rec->found_csum_item = 1;
-			if (found < num_bytes)
+			if (found < num_bytes) {
+				fprintf(stderr, "missing csum at bytenr "
+					"%llu-%llu, found %llu\n",
+					disk_bytenr, num_bytes, found);
 				rec->some_csum_missing = 1;
+			}
 		} else if (extent_type == BTRFS_FILE_EXTENT_PREALLOC) {
 			if (found > 0)
 				rec->errors |= I_ERR_ODD_CSUM_ITEM;
@@ -5369,6 +5384,7 @@ static int run_next_block(struct btrfs_trans_handle *trans,
 	/* fixme, get the real parent transid */
 	buf = read_tree_block(root, bytenr, size, gen);
 	if (!extent_buffer_uptodate(buf)) {
+		fprintf(stderr, "read tree block failed for %llu\n", bytenr);
 		record_bad_block_io(root->fs_info,
 				    extent_cache, bytenr, size);
 		goto out;
@@ -5423,6 +5439,7 @@ static int run_next_block(struct btrfs_trans_handle *trans,
 		for (i = 0; i < nritems; i++) {
 			struct btrfs_file_extent_item *fi;
 			btrfs_item_key_to_cpu(buf, &key, i);
+
 			if (key.type == BTRFS_EXTENT_ITEM_KEY) {
 				process_extent_item(root, extent_cache, buf,
 						    i);
@@ -5587,6 +5604,8 @@ static int run_next_block(struct btrfs_trans_handle *trans,
 	    !btrfs_header_flag(buf, BTRFS_HEADER_FLAG_RELOC))
 		found_old_backref = 1;
 out:
+	if (ret)
+		fprintf(stderr, "returning %d\n", ret);
 	free_extent_buffer(buf);
 	return ret;
 }
@@ -6522,8 +6541,6 @@ static int find_possible_backrefs(struct btrfs_trans_handle *trans,
 		ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
 		if (ret) {
 			btrfs_release_path(path);
-			if (ret < 0)
-				return ret;
 			/* Didn't find it, we can carry on */
 			ret = 0;
 			continue;
@@ -6583,6 +6600,7 @@ static int fixup_extent_refs(struct btrfs_trans_handle *trans,
 	int allocated = 0;
 	u64 flags = 0;
 
+	fprintf(stderr, "reparing bytenr %llu\n", rec->start);
 	if (rec->flag_block_full_backref)
 		flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
 
@@ -6600,26 +6618,33 @@ static int fixup_extent_refs(struct btrfs_trans_handle *trans,
 		 */
 		ret = find_possible_backrefs(trans, info, path, extent_cache,
 					     rec);
-		if (ret < 0)
+		if (ret < 0) {
+			fprintf(stderr, "find possible backrefs %d\n", ret);
 			goto out;
+		}
 	}
 
 	/* step one, make sure all of the backrefs agree */
 	ret = verify_backrefs(trans, info, path, rec);
-	if (ret < 0)
+	if (ret < 0) {
+		fprintf(stderr, "verify backrefs %d\n", ret);
 		goto out;
+	}
 
 	/* step two, delete all the existing records */
 	ret = delete_extent_records(trans, info->extent_root, path,
 				    rec->start, rec->max_size);
 
-	if (ret < 0)
+	if (ret < 0) {
+		fprintf(stderr, "delete extent records %d\n", ret);
 		goto out;
+	}
 
 	/* was this block corrupt?  If so, don't add references to it */
 	cache = lookup_cache_extent(info->corrupt_blocks,
 				    rec->start, rec->max_size);
 	if (cache) {
+		fprintf(stderr, "block was corrupt\n");
 		ret = 0;
 		goto out;
 	}
@@ -6636,11 +6661,14 @@ static int fixup_extent_refs(struct btrfs_trans_handle *trans,
 		if (!back->found_ref)
 			continue;
 
+		fprintf(stderr, "recording extent\n");
 		ret = record_extent(trans, info, path, rec, back, allocated, flags);
 		allocated = 1;
 
-		if (ret)
+		if (ret) {
+			fprintf(stderr, "record extent returned %d\n", ret);
 			goto out;
+		}
 	}
 out:
 	btrfs_free_path(path);
@@ -6739,6 +6767,8 @@ static void reset_cached_block_groups(struct btrfs_fs_info *fs_info)
 	u64 start, end;
 	int ret;
 
+	fprintf(stderr, "reseting cached block groups\n");
+
 	while (1) {
 		ret = find_first_extent_bit(&fs_info->free_space_cache, 0,
 					    &start, &end, EXTENT_DIRTY);
@@ -6759,10 +6789,11 @@ static void reset_cached_block_groups(struct btrfs_fs_info *fs_info)
 	}
 }
 
-static int check_extent_refs(struct btrfs_trans_handle *trans,
+static int check_extent_refs(struct btrfs_trans_handle **trans_ptr,
 			     struct btrfs_root *root,
 			     struct cache_tree *extent_cache)
 {
+	struct btrfs_trans_handle *trans = *trans_ptr;
 	struct extent_record *rec;
 	struct cache_extent *cache;
 	int err = 0;
@@ -6770,6 +6801,7 @@ static int check_extent_refs(struct btrfs_trans_handle *trans,
 	int fixed = 0;
 	int had_dups = 0;
 
+again:
 	if (repair) {
 		/*
 		 * if we're doing a repair, we have to make sure
@@ -6782,17 +6814,20 @@ static int check_extent_refs(struct btrfs_trans_handle *trans,
 			rec = container_of(cache, struct extent_record, cache);
 			btrfs_pin_extent(root->fs_info,
 					 rec->start, rec->max_size);
+			fprintf(stderr, "pinning down %llu-%llu\n", rec->start,
+				rec->max_size);
 			cache = next_cache_extent(cache);
 		}
 
-		/* pin down all the corrupted blocks too */
-		cache = search_cache_extent(root->fs_info->corrupt_blocks, 0);
-		while(cache) {
-			btrfs_pin_extent(root->fs_info,
-					 cache->start, cache->size);
-			cache = next_cache_extent(cache);
-		}
+		fprintf(stderr, "pinned size is %llu\n", root->fs_info->total_pinned);
 		prune_corrupt_blocks(trans, root->fs_info);
+
+		/*
+		 * Need to do this so we know that when we go to cache the block
+		 * groups that all our current changes are reflected in the
+		 * extent tree.
+		 */
+		btrfs_extent_post_op(trans, root);
 		reset_cached_block_groups(root->fs_info);
 	}
 
@@ -6891,6 +6926,22 @@ static int check_extent_refs(struct btrfs_trans_handle *trans,
 		remove_cache_extent(extent_cache, cache);
 		free_all_extent_backrefs(rec);
 		free(rec);
+
+		if (repair &&
+		    btrfs_free_metadata_space(root->fs_info) <
+		    LOW_SPACE_THRESHOLD) {
+			ret = btrfs_commit_transaction(trans, root);
+			if (ret)
+				goto repair_abort;
+
+			trans = btrfs_start_transaction(root, 1);
+			if (IS_ERR(trans)) {
+				ret = PTR_ERR(trans);
+				goto repair_abort;
+			}
+			*trans_ptr = trans;
+			goto again;
+		}
 	}
 repair_abort:
 	if (repair) {
@@ -7412,7 +7463,7 @@ again:
 					  &block_group_cache,
 					  &dev_extent_cache);
 	if (ret >= 0)
-		ret = check_extent_refs(trans, root, &extent_cache);
+		ret = check_extent_refs(&trans, root, &extent_cache);
 	if (ret == -EAGAIN) {
 		ret = btrfs_commit_transaction(trans, root);
 		if (ret)
@@ -8566,6 +8617,7 @@ int cmd_check(int argc, char **argv)
 		goto err_out;
 	}
 
+	fprintf(stderr, "info is %p\n", info);
 	root = info->fs_root;
 
 	/*
@@ -8663,8 +8715,10 @@ int cmd_check(int argc, char **argv)
 
 	fprintf(stderr, "checking extents\n");
 	ret = check_chunks_and_extents(root);
-	if (ret)
+	if (ret) {
 		fprintf(stderr, "Errors found in extent allocation tree or chunk allocation %d\n", ret);
+		goto out;
+	}
 
 	ret = repair_root_items(info);
 	if (ret < 0)
