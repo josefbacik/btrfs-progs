@@ -5795,7 +5795,7 @@ static int record_extent(struct btrfs_trans_handle *trans,
 			 struct extent_backref *back,
 			 int allocated, u64 flags)
 {
-	int ret;
+	int ret = 0;
 	struct btrfs_root *extent_root = info->extent_root;
 	struct extent_buffer *leaf;
 	struct btrfs_key ins_key;
@@ -5820,8 +5820,10 @@ static int record_extent(struct btrfs_trans_handle *trans,
 
 		ret = btrfs_insert_empty_item(trans, extent_root, path,
 					&ins_key, item_size);
-		if (ret)
+		if (ret) {
+			fprintf(stderr, "insert empty item returned %d\n", ret);
 			goto fail;
+		}
 
 		leaf = path->nodes[0];
 		ei = btrfs_item_ptr(leaf, path->slots[0],
@@ -5856,8 +5858,11 @@ static int record_extent(struct btrfs_trans_handle *trans,
 		btrfs_mark_buffer_dirty(leaf);
 		ret = btrfs_update_block_group(trans, extent_root, rec->start,
 					       rec->max_size, 1, 0);
-		if (ret)
+		if (ret) {
+			fprintf(stderr, "btrfs_update_block_group returned %d\n",
+				ret);
 			goto fail;
+		}
 		btrfs_release_path(path);
 	}
 
@@ -5885,8 +5890,10 @@ static int record_extent(struct btrfs_trans_handle *trans,
 						   BTRFS_FIRST_FREE_OBJECTID :
 						   dback->owner,
 						   dback->offset);
-			if (ret)
+			if (ret) {
+				fprintf(stderr, "inc xtent ref\n");
 				break;
+			}
 		}
 		fprintf(stderr, "adding new data backref"
 				" on %llu %s %llu owner %llu"
@@ -6791,6 +6798,7 @@ static void reset_cached_block_groups(struct btrfs_fs_info *fs_info)
 
 static int check_extent_refs(struct btrfs_trans_handle **trans_ptr,
 			     struct btrfs_root *root,
+			     struct list_head *rebuild_bgs,
 			     struct cache_tree *extent_cache)
 {
 	struct btrfs_trans_handle *trans = *trans_ptr;
@@ -6803,6 +6811,8 @@ static int check_extent_refs(struct btrfs_trans_handle **trans_ptr,
 
 again:
 	if (repair) {
+		struct chunk_record *chunk_rec;
+
 		/*
 		 * if we're doing a repair, we have to make sure
 		 * we don't allocate from the problem extents.
@@ -6814,13 +6824,26 @@ again:
 			rec = container_of(cache, struct extent_record, cache);
 			btrfs_pin_extent(root->fs_info,
 					 rec->start, rec->max_size);
-			fprintf(stderr, "pinning down %llu-%llu\n", rec->start,
-				rec->max_size);
 			cache = next_cache_extent(cache);
 		}
 
-		fprintf(stderr, "pinned size is %llu\n", root->fs_info->total_pinned);
 		prune_corrupt_blocks(trans, root->fs_info);
+
+		while (!list_empty(rebuild_bgs)) {
+			chunk_rec = list_first_entry(rebuild_bgs,
+						     struct chunk_record,
+						     list);
+			fprintf(stderr, "recreating block group %llu-%llu\n", chunk_rec->offset, chunk_rec->length);
+			list_del_init(&chunk_rec->list);
+			ret = btrfs_make_block_group(trans, root,
+						     chunk_rec->length,
+						     chunk_rec->type_flags,
+						     chunk_rec->objectid,
+						     chunk_rec->offset,
+						     chunk_rec->length);
+			if (ret)
+				goto repair_abort;
+		}
 
 		/*
 		 * Need to do this so we know that when we go to cache the block
@@ -6865,6 +6888,7 @@ again:
 	if (had_dups)
 		return -EAGAIN;
 
+	btrfs_free_metadata_space(root->fs_info);
 	while(1) {
 		fixed = 0;
 		cache = search_cache_extent(extent_cache, 0);
@@ -6987,7 +7011,9 @@ u64 calc_stripe_length(u64 type, u64 length, int num_stripes)
  * like missing block group and needs to search extent tree to rebuild them.
  * Return -1 if essential refs are missing and unable to rebuild.
  */
-static int check_chunk_refs(struct chunk_record *chunk_rec,
+static int check_chunk_refs(struct btrfs_trans_handle *trans,
+			    struct btrfs_root *root,
+			    struct chunk_record *chunk_rec,
 			    struct block_group_tree *block_group_cache,
 			    struct device_extent_tree *dev_extent_cache,
 			    int silent)
@@ -7001,6 +7027,7 @@ static int check_chunk_refs(struct chunk_record *chunk_rec,
 	u64 length;
 	int i;
 	int ret = 0;
+	int rescan = 0;
 
 	block_group_item = lookup_cache_extent(&block_group_cache->tree,
 					       chunk_rec->offset,
@@ -7062,16 +7089,19 @@ static int check_chunk_refs(struct chunk_record *chunk_rec,
 			    dev_extent_rec->length != length) {
 				if (!silent)
 					fprintf(stderr,
-						"Chunk[%llu, %u, %llu] stripe[%llu, %llu] dismatch dev extent[%llu, %llu, %llu]\n",
+						"Chunk[%llu, %u, %llu] stripe[%llu, %llu, %llu] dismatch dev extent[%llu, %llu, %llu, %llu]\n",
 						chunk_rec->objectid,
 						chunk_rec->type,
 						chunk_rec->offset,
 						chunk_rec->stripes[i].devid,
 						chunk_rec->stripes[i].offset,
+						length,
 						dev_extent_rec->objectid,
 						dev_extent_rec->offset,
-						dev_extent_rec->length);
-				ret = -1;
+						dev_extent_rec->length,
+						dev_extent_rec->chunk_offset);
+				if (!ret)
+					ret = -1;
 			} else {
 				list_move(&dev_extent_rec->chunk_list,
 					  &chunk_rec->dextents);
@@ -7085,14 +7115,17 @@ static int check_chunk_refs(struct chunk_record *chunk_rec,
 					chunk_rec->offset,
 					chunk_rec->stripes[i].devid,
 					chunk_rec->stripes[i].offset);
-			ret = -1;
+			if (!ret)
+				ret = -1;
 		}
 	}
-	return ret;
+	return rescan ? -EAGAIN : ret;
 }
 
 /* check btrfs_chunk -> btrfs_dev_extent / btrfs_block_group_item */
-int check_chunks(struct cache_tree *chunk_cache,
+int check_chunks(struct btrfs_trans_handle *trans,
+		 struct btrfs_root *root,
+		 struct cache_tree *chunk_cache,
 		 struct block_group_tree *block_group_cache,
 		 struct device_extent_tree *dev_extent_cache,
 		 struct list_head *good, struct list_head *bad,
@@ -7109,8 +7142,9 @@ int check_chunks(struct cache_tree *chunk_cache,
 	while (chunk_item) {
 		chunk_rec = container_of(chunk_item, struct chunk_record,
 					 cache);
-		err = check_chunk_refs(chunk_rec, block_group_cache,
-				       dev_extent_cache, silent);
+		err = check_chunk_refs(trans, root, chunk_rec,
+				       block_group_cache, dev_extent_cache,
+				       silent);
 		if (err)
 			ret = err;
 		if (err == 0 && good)
@@ -7257,8 +7291,8 @@ static int deal_root_from_list(struct list_head *list,
 		last = 0;
 		buf = read_tree_block(root->fs_info->tree_root,
 				      rec->bytenr, rec->level_size, 0);
-		if (!extent_buffer_uptodate(buf)) {
-			fprintf(stderr, "read tree block1 failed %llu\n", buf->start);
+		if (!buf || !extent_buffer_uptodate(buf)) {
+			fprintf(stderr, "read tree block1 failed %llu\n", rec->bytenr);
 			free_extent_buffer(buf);
 			ret = -EIO;
 			break;
@@ -7328,6 +7362,7 @@ static int check_chunks_and_extents(struct btrfs_root *root)
 	struct btrfs_root_item ri;
 	struct list_head dropping_trees;
 	struct list_head normal_trees;
+	struct list_head rebuild_bgs;
 	struct btrfs_root *root1;
 	u64 objectid;
 	u32 level_size;
@@ -7346,6 +7381,7 @@ static int check_chunks_and_extents(struct btrfs_root *root)
 	cache_tree_init(&corrupt_blocks);
 	INIT_LIST_HEAD(&dropping_trees);
 	INIT_LIST_HEAD(&normal_trees);
+	INIT_LIST_HEAD(&rebuild_bgs);
 
 	if (repair) {
 		trans = btrfs_start_transaction(root, 1);
@@ -7455,44 +7491,38 @@ again:
 				  &reada, &nodes, &extent_cache,
 				  &chunk_cache, &dev_cache, &block_group_cache,
 				  &dev_extent_cache);
-	if (ret >= 0)
-		ret = deal_root_from_list(&dropping_trees, trans, root,
-					  bits, bits_nr, &pending, &seen,
-					  &reada, &nodes, &extent_cache,
-					  &chunk_cache, &dev_cache,
-					  &block_group_cache,
-					  &dev_extent_cache);
-	if (ret >= 0)
-		ret = check_extent_refs(&trans, root, &extent_cache);
-	if (ret == -EAGAIN) {
-		ret = btrfs_commit_transaction(trans, root);
-		if (ret)
-			goto out;
-
-		trans = btrfs_start_transaction(root, 1);
-		if (IS_ERR(trans)) {
-			ret = PTR_ERR(trans);
-			goto out;
-		}
-
-		free_corrupt_blocks_tree(root->fs_info->corrupt_blocks);
-		free_extent_cache_tree(&seen);
-		free_extent_cache_tree(&pending);
-		free_extent_cache_tree(&reada);
-		free_extent_cache_tree(&nodes);
-		free_chunk_cache_tree(&chunk_cache);
-		free_block_group_tree(&block_group_cache);
-		free_device_cache_tree(&dev_cache);
-		free_device_extent_tree(&dev_extent_cache);
-		free_extent_record_cache(root->fs_info, &extent_cache);
-		goto again;
+	if (ret < 0) {
+		if (ret == -EAGAIN)
+			goto loop;
+		goto out;
+	}
+	ret = deal_root_from_list(&dropping_trees, trans, root,
+				  bits, bits_nr, &pending, &seen,
+				  &reada, &nodes, &extent_cache,
+				  &chunk_cache, &dev_cache,
+				  &block_group_cache,
+				  &dev_extent_cache);
+	if (ret < 0) {
+		if (ret == -EAGAIN)
+			goto loop;
+		goto out;
 	}
 
-	err = check_chunks(&chunk_cache, &block_group_cache,
-			   &dev_extent_cache, NULL, NULL, NULL, 0);
-	if (err && !ret) {
+	err = check_chunks(trans, root, &chunk_cache, &block_group_cache,
+			   &dev_extent_cache, NULL, NULL, &rebuild_bgs, 0);
+	if (err) {
+		if (err == -EAGAIN)
+			goto loop;
 		printf("chunks errored out %d\n", err);
-		ret = err;
+		if (!ret)
+			ret = err;
+	}
+
+	ret = check_extent_refs(&trans, root, &rebuild_bgs, &extent_cache);
+	if (ret < 0) {
+		if (ret == -EAGAIN)
+			goto loop;
+		goto out;
 	}
 
 	err = check_devices(&dev_cache, &dev_extent_cache);
@@ -7525,6 +7555,28 @@ out:
 	free_extent_cache_tree(&reada);
 	free_extent_cache_tree(&nodes);
 	return ret;
+loop:
+	ret = btrfs_commit_transaction(trans, root);
+	if (ret)
+		goto out;
+
+	trans = btrfs_start_transaction(root, 1);
+	if (IS_ERR(trans)) {
+		ret = PTR_ERR(trans);
+		goto out;
+	}
+
+	free_corrupt_blocks_tree(root->fs_info->corrupt_blocks);
+	free_extent_cache_tree(&seen);
+	free_extent_cache_tree(&pending);
+	free_extent_cache_tree(&reada);
+	free_extent_cache_tree(&nodes);
+	free_chunk_cache_tree(&chunk_cache);
+	free_block_group_tree(&block_group_cache);
+	free_device_cache_tree(&dev_cache);
+	free_device_extent_tree(&dev_extent_cache);
+	free_extent_record_cache(root->fs_info, &extent_cache);
+	goto again;
 }
 
 static int btrfs_fsck_reinit_root(struct btrfs_trans_handle *trans,
@@ -8483,6 +8535,8 @@ out:
 	free_roots_info_cache();
 	if (path)
 		btrfs_free_path(path);
+	if (trans)
+		btrfs_commit_transaction(trans, info->tree_root);
 	if (ret < 0)
 		return ret;
 

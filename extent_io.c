@@ -36,7 +36,6 @@ void extent_io_tree_init(struct extent_io_tree *tree)
 	cache_tree_init(&tree->cache);
 	INIT_LIST_HEAD(&tree->lru);
 	tree->cache_size = 0;
-	tree->debug = 0;
 }
 
 static struct extent_state *alloc_extent_state(void)
@@ -146,8 +145,6 @@ static int insert_state(struct extent_io_tree *tree,
 	state->state |= bits;
 	state->start = start;
 	state->end = end;
-	if (tree->debug)
-		fprintf(stderr, "cache: adding %llu-%llu\n", state->start, state->end - state->start + 1);
 	update_extent_state(state);
 	ret = insert_cache_extent(&tree->state, &state->cache_node);
 	BUG_ON(ret);
@@ -170,9 +167,6 @@ static int split_state(struct extent_io_tree *tree, struct extent_state *orig,
 	update_extent_state(prealloc);
 	orig->start = split;
 	update_extent_state(orig);
-	if (tree->debug)
-		fprintf(stderr, "cache: split %llu-%llu at %llu\n",
-			prealloc->start, orig->end - prealloc->start + 1, split);
 	ret = insert_cache_extent(&tree->state, &prealloc->cache_node);
 	BUG_ON(ret);
 	return 0;
@@ -188,14 +182,9 @@ static int clear_state_bit(struct extent_io_tree *tree,
 
 	state->state &= ~bits;
 	if (state->state == 0) {
-		if (tree->debug)
-			fprintf(stderr, "cache: removing %llu-%llu\n", state->start, state->end - state->start + 1);
 		remove_cache_extent(&tree->state, &state->cache_node);
 		btrfs_free_extent_state(state);
 	} else {
-		if (tree->debug)
-			fprintf(stderr, "cache: merging %llu-%llu, state %d\n", state->start,
-				state->end - state->start + 1, state->state);
 		merge_state(tree, state);
 	}
 	return ret;
