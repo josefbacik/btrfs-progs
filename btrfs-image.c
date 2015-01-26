@@ -285,6 +285,33 @@ static struct rb_node *tree_search(struct rb_root *root,
 	return NULL;
 }
 
+static u64 logical_to_physical(struct mdrestore_struct *mdres, u64 logical, u64 *size)
+{
+	struct fs_chunk *fs_chunk;
+	struct rb_node *entry;
+	struct fs_chunk search;
+	u64 offset;
+
+	if (logical == BTRFS_SUPER_INFO_OFFSET)
+		return logical;
+
+	search.logical = logical;
+	entry = tree_search(&mdres->chunk_tree, &search.n, chunk_cmp, 1);
+	if (!entry) {
+		if (mdres->in != stdin)
+			printf("Couldn't find a chunk, using logical\n");
+		return logical;
+	}
+	fs_chunk = rb_entry(entry, struct fs_chunk, n);
+	if (fs_chunk->logical > logical || fs_chunk->logical + fs_chunk->bytes < logical)
+		BUG();
+	offset = search.logical - fs_chunk->logical;
+
+	*size = min(*size, fs_chunk->bytes + fs_chunk->logical - logical);
+	return fs_chunk->physical + offset;
+}
+
+
 static char *find_collision(struct metadump_struct *md, char *name,
 			    u32 name_len)
 {
@@ -1425,6 +1452,7 @@ static int update_super(struct mdrestore_struct *mdres, u8 *buffer)
 	struct btrfs_chunk *chunk;
 	struct btrfs_disk_key *disk_key;
 	struct btrfs_key key;
+	u64 flags = btrfs_super_flags(super);
 	u32 new_array_size = 0;
 	u32 array_size;
 	u32 cur = 0;
@@ -1472,6 +1500,8 @@ static int update_super(struct mdrestore_struct *mdres, u8 *buffer)
 	if (mdres->clear_space_cache)
 		btrfs_set_super_cache_generation(super, 0);
 
+	flags |= BTRFS_SUPER_FLAG_METADUMP_V2;
+	btrfs_set_super_flags(super, flags);
 	btrfs_set_super_sys_array_size(super, new_array_size);
 	csum_block(buffer, BTRFS_SUPER_INFO_SIZE);
 
@@ -1562,7 +1592,7 @@ static int fixup_chunk_tree_block(struct mdrestore_struct *mdres,
 		for (i = 0; i < btrfs_header_nritems(eb); i++) {
 			struct btrfs_chunk chunk;
 			struct btrfs_key key;
-			u64 type;
+			u64 type, physical, size;
 
 			btrfs_item_key_to_cpu(eb, &key, i);
 			if (key.type != BTRFS_CHUNK_ITEM_KEY)
@@ -1571,6 +1601,10 @@ static int fixup_chunk_tree_block(struct mdrestore_struct *mdres,
 			read_extent_buffer(eb, &chunk,
 					   btrfs_item_ptr_offset(eb, i),
 					   sizeof(chunk));
+
+			size = 0;
+			physical = logical_to_physical(mdres, key.offset,
+						       &size);
 
 			/* Zero out the RAID profile */
 			type = btrfs_stack_chunk_type(&chunk);
@@ -1583,6 +1617,9 @@ static int fixup_chunk_tree_block(struct mdrestore_struct *mdres,
 			btrfs_set_stack_chunk_num_stripes(&chunk, 1);
 			btrfs_set_stack_chunk_sub_stripes(&chunk, 0);
 			btrfs_set_stack_stripe_devid(&chunk.stripe, mdres->devid);
+			if (size)
+				btrfs_set_stack_stripe_offset(&chunk.stripe,
+							      physical);
 			memcpy(chunk.stripe.dev_uuid, mdres->uuid,
 			       BTRFS_UUID_SIZE);
 			write_extent_buffer(eb, &chunk,
@@ -1635,32 +1672,6 @@ static void write_backup_supers(int fd, u8 *buf)
 			break;
 		}
 	}
-}
-
-static u64 logical_to_physical(struct mdrestore_struct *mdres, u64 logical, u64 *size)
-{
-	struct fs_chunk *fs_chunk;
-	struct rb_node *entry;
-	struct fs_chunk search;
-	u64 offset;
-
-	if (logical == BTRFS_SUPER_INFO_OFFSET)
-		return logical;
-
-	search.logical = logical;
-	entry = tree_search(&mdres->chunk_tree, &search.n, chunk_cmp, 1);
-	if (!entry) {
-		if (mdres->in != stdin)
-			printf("Couldn't find a chunk, using logical\n");
-		return logical;
-	}
-	fs_chunk = rb_entry(entry, struct fs_chunk, n);
-	if (fs_chunk->logical > logical || fs_chunk->logical + fs_chunk->bytes < logical)
-		BUG();
-	offset = search.logical - fs_chunk->logical;
-
-	*size = min(*size, fs_chunk->bytes + fs_chunk->logical - logical);
-	return fs_chunk->physical + offset;
 }
 
 static void *restore_worker(void *data)
