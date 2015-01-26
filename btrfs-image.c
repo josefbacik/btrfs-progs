@@ -71,6 +71,7 @@ struct fs_chunk {
 	u64 physical;
 	u64 bytes;
 	struct rb_node n;
+	struct list_head list;
 };
 
 struct async_work {
@@ -129,9 +130,11 @@ struct mdrestore_struct {
 
 	struct rb_root chunk_tree;
 	struct list_head list;
+	struct list_head overlapping_chunks;
 	size_t num_items;
 	u32 leafsize;
 	u64 devid;
+	u64 last_physical_offset;
 	u8 uuid[BTRFS_UUID_SIZE];
 	u8 fsid[BTRFS_FSID_SIZE];
 
@@ -141,6 +144,7 @@ struct mdrestore_struct {
 	int old_restore;
 	int fixup_offset;
 	int multi_devices;
+	int clear_space_cache;
 	struct btrfs_fs_info *info;
 };
 
@@ -219,6 +223,22 @@ static int chunk_cmp(struct rb_node *a, struct rb_node *b, int fuzz)
 	return 0;
 }
 
+static int physical_cmp(struct rb_node *a, struct rb_node *b, int fuzz)
+{
+	struct fs_chunk *entry = rb_entry(a, struct fs_chunk, n);
+	struct fs_chunk *ins = rb_entry(b, struct fs_chunk, n);
+
+	if (fuzz && ins->logical >= entry->logical &&
+	    ins->logical < entry->logical + entry->bytes)
+		return 0;
+
+	if (ins->physical < entry->physical)
+		return -1;
+	else if (ins->physical > entry->physical)
+		return 1;
+	return 0;
+}
+
 static void tree_insert(struct rb_root *root, struct rb_node *ins,
 			int (*cmp)(struct rb_node *a, struct rb_node *b,
 				   int fuzz))
@@ -230,7 +250,7 @@ static void tree_insert(struct rb_root *root, struct rb_node *ins,
 	while(*p) {
 		parent = *p;
 
-		dir = cmp(*p, ins, 0);
+		dir = cmp(*p, ins, 1);
 		if (dir < 0)
 			p = &(*p)->rb_left;
 		else if (dir > 0)
@@ -1399,7 +1419,7 @@ static void update_super_old(u8 *buffer)
 	csum_block(buffer, BTRFS_SUPER_INFO_SIZE);
 }
 
-static int update_super(u8 *buffer)
+static int update_super(struct mdrestore_struct *mdres, u8 *buffer)
 {
 	struct btrfs_super_block *super = (struct btrfs_super_block *)buffer;
 	struct btrfs_chunk *chunk;
@@ -1448,6 +1468,9 @@ static int update_super(u8 *buffer)
 		ptr += btrfs_chunk_item_size(old_num_stripes);
 		cur += btrfs_chunk_item_size(old_num_stripes);
 	}
+
+	if (mdres->clear_space_cache)
+		btrfs_set_super_cache_generation(super, 0);
 
 	btrfs_set_super_sys_array_size(super, new_array_size);
 	csum_block(buffer, BTRFS_SUPER_INFO_SIZE);
@@ -1699,7 +1722,7 @@ static void *restore_worker(void *data)
 				if (mdres->old_restore) {
 					update_super_old(outbuf);
 				} else {
-					ret = update_super(outbuf);
+					ret = update_super(mdres, outbuf);
 					if (ret)
 						err = ret;
 				}
@@ -1800,6 +1823,7 @@ static int mdrestore_init(struct mdrestore_struct *mdres,
 	pthread_cond_init(&mdres->cond, NULL);
 	pthread_mutex_init(&mdres->mutex, NULL);
 	INIT_LIST_HEAD(&mdres->list);
+	INIT_LIST_HEAD(&mdres->overlapping_chunks);
 	mdres->in = in;
 	mdres->out = out;
 	mdres->old_restore = old_restore;
@@ -1807,6 +1831,8 @@ static int mdrestore_init(struct mdrestore_struct *mdres,
 	mdres->fixup_offset = fixup_offset;
 	mdres->info = info;
 	mdres->multi_devices = multi_devices;
+	mdres->clear_space_cache = 0;
+	mdres->last_physical_offset = 0;
 
 	if (!num_threads)
 		return 0;
@@ -1963,6 +1989,7 @@ static int read_chunk_block(struct mdrestore_struct *mdres, u8 *buffer,
 	struct extent_buffer *eb;
 	int ret = 0;
 	int i;
+	int found = 0;
 
 	eb = alloc_dummy_eb(bytenr, mdres->leafsize);
 	if (!eb) {
@@ -2003,17 +2030,24 @@ static int read_chunk_block(struct mdrestore_struct *mdres, u8 *buffer,
 		if (btrfs_header_level(eb)) {
 			u64 blockptr = btrfs_node_blockptr(eb, i);
 
+			fprintf(stderr, "looking for blockptr %llu from %llu\n",
+				blockptr, bytenr);
 			ret = search_for_chunk_blocks(mdres, blockptr,
 						      cluster_bytenr);
-			if (ret)
+			if (ret) {
+				fprintf(stderr, "search for chunk block returned %llu, at item %d out of %d\n", ret, i, btrfs_header_nritems(eb));
 				break;
+			}
+			found = 1;
 			continue;
 		}
 
 		/* Yay a leaf!  We loves leafs! */
 		btrfs_item_key_to_cpu(eb, &key, i);
-		if (key.type != BTRFS_CHUNK_ITEM_KEY)
+		if (key.type != BTRFS_CHUNK_ITEM_KEY) {
+			fprintf(stderr, "key type %u\n", key.type);
 			continue;
+		}
 
 		fs_chunk = malloc(sizeof(struct fs_chunk));
 		if (!fs_chunk) {
@@ -2021,6 +2055,7 @@ static int read_chunk_block(struct mdrestore_struct *mdres, u8 *buffer,
 			ret = -ENOMEM;
 			break;
 		}
+		found = 1;
 		memset(fs_chunk, 0, sizeof(*fs_chunk));
 		read_extent_buffer(eb, &chunk, btrfs_item_ptr_offset(eb, i),
 				   sizeof(chunk));
@@ -2028,9 +2063,19 @@ static int read_chunk_block(struct mdrestore_struct *mdres, u8 *buffer,
 		fs_chunk->logical = key.offset;
 		fs_chunk->physical = btrfs_stack_stripe_offset(&chunk.stripe);
 		fs_chunk->bytes = btrfs_stack_chunk_length(&chunk);
+		INIT_LIST_HEAD(&fs_chunk->list);
+		if (tree_search(&mdres->chunk_tree, &fs_chunk->n,
+				physical_cmp, 1) != NULL)
+			list_add(&fs_chunk->list, &mdres->overlapping_chunks);
+		if (fs_chunk->physical + fs_chunk->bytes >
+		    mdres->last_physical_offset)
+			mdres->last_physical_offset = fs_chunk->physical +
+				fs_chunk->bytes;
 		tree_insert(&mdres->chunk_tree, &fs_chunk->n, chunk_cmp);
 	}
 out:
+	if (!found)
+		fprintf(stderr, "Didn't get any chunk items items %d\n", btrfs_header_nritems(eb));
 	free(eb);
 	return ret;
 }
@@ -2048,6 +2093,7 @@ static int search_for_chunk_blocks(struct mdrestore_struct *mdres,
 	u32 max_size = MAX_PENDING_SIZE * 2;
 	u8 *buffer, *tmp = NULL;
 	int ret = 0;
+	int found = 0;
 
 	cluster = malloc(BLOCK_SIZE);
 	if (!cluster) {
@@ -2154,6 +2200,7 @@ static int search_for_chunk_blocks(struct mdrestore_struct *mdres,
 
 			if (item_bytenr <= search &&
 			    item_bytenr + size > search) {
+				found = 1;
 				ret = read_chunk_block(mdres, buffer, search,
 						       item_bytenr, size,
 						       current_cluster);
@@ -2173,6 +2220,8 @@ static int search_for_chunk_blocks(struct mdrestore_struct *mdres,
 		current_cluster = bytenr;
 	}
 
+	if (!found)
+		fprintf(stderr, "couldnt find %llu\n", search);
 	free(tmp);
 	free(buffer);
 	free(cluster);
@@ -2277,6 +2326,42 @@ static int build_chunk_tree(struct mdrestore_struct *mdres,
 	return search_for_chunk_blocks(mdres, chunk_root_bytenr, 0);
 }
 
+static int range_contains_super(u64 physical, u64 bytes)
+{
+	u64 super_bytenr;
+	int i;
+
+	for (i = 0; i < BTRFS_SUPER_MIRROR_MAX; i++) {
+		super_bytenr = btrfs_sb_offset(i);
+		if (super_bytenr >= physical &&
+		    super_bytenr < physical + bytes)
+			return 1;
+	}
+
+	return 0;
+}
+
+static void remap_overlapping_chunks(struct mdrestore_struct *mdres)
+{
+	struct fs_chunk *fs_chunk;
+
+	while (!list_empty(&mdres->overlapping_chunks)) {
+		fs_chunk = list_first_entry(&mdres->overlapping_chunks,
+					    struct fs_chunk, list);
+		list_del_init(&fs_chunk->list);
+		fprintf(stderr, "remapping logical chunk %llu\n", fs_chunk->logical);
+		if (range_contains_super(fs_chunk->physical,
+					 fs_chunk->bytes)) {
+			fprintf(stderr, "Remapping a chunk that had a super "
+				"mirror inside of it, clearing space cache "
+				"so we don't end up with corruption\n");
+			mdres->clear_space_cache = 1;
+		}
+		fs_chunk->physical = mdres->last_physical_offset;
+		mdres->last_physical_offset += fs_chunk->bytes;
+	}
+}
+
 static int __restore_metadump(const char *input, FILE *out, int old_restore,
 			      int num_threads, int fixup_offset,
 			      const char *target, int multi_devices)
@@ -2331,6 +2416,8 @@ static int __restore_metadump(const char *input, FILE *out, int old_restore,
 		ret = build_chunk_tree(&mdrestore, cluster);
 		if (ret)
 			goto out;
+		if (!list_empty(&mdrestore.overlapping_chunks))
+			remap_overlapping_chunks(&mdrestore);
 	}
 
 	if (in != stdin && fseek(in, 0, SEEK_SET)) {
