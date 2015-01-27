@@ -1276,12 +1276,8 @@ static int process_file_extent(struct btrfs_root *root,
 		if (extent_type == BTRFS_FILE_EXTENT_REG) {
 			if (found > 0)
 				rec->found_csum_item = 1;
-			if (found < num_bytes) {
-				fprintf(stderr, "missing csum at bytenr "
-					"%llu-%llu, found %llu\n",
-					disk_bytenr, num_bytes, found);
+			if (found < num_bytes)
 				rec->some_csum_missing = 1;
-			}
 		} else if (extent_type == BTRFS_FILE_EXTENT_PREALLOC) {
 			if (found > 0)
 				rec->errors |= I_ERR_ODD_CSUM_ITEM;
@@ -6937,6 +6933,8 @@ static int check_extent_refs(struct btrfs_root *root,
 		return -EAGAIN;
 
 	while(1) {
+		int cur_err = 0;
+
 		fixed = 0;
 		cache = search_cache_extent(extent_cache, 0);
 		if (!cache)
@@ -6946,6 +6944,7 @@ static int check_extent_refs(struct btrfs_root *root,
 			fprintf(stderr, "extent item %llu has multiple extent "
 				"items\n", (unsigned long long)rec->start);
 			err = 1;
+			cur_err = 1;
 		}
 
 		if (rec->refs != rec->extent_item_refs) {
@@ -6963,7 +6962,7 @@ static int check_extent_refs(struct btrfs_root *root,
 				fixed = 1;
 			}
 			err = 1;
-
+			cur_err = 1;
 		}
 		if (all_backpointers_checked(rec, 1)) {
 			fprintf(stderr, "backpointer mismatch on [%llu %llu]\n",
@@ -6977,7 +6976,7 @@ static int check_extent_refs(struct btrfs_root *root,
 					goto repair_abort;
 				fixed = 1;
 			}
-
+			cur_err = 1;
 			err = 1;
 		}
 		if (!rec->owner_ref_checked) {
@@ -6992,10 +6991,16 @@ static int check_extent_refs(struct btrfs_root *root,
 				fixed = 1;
 			}
 			err = 1;
+			cur_err = 1;
 		}
 
 		remove_cache_extent(extent_cache, cache);
 		free_all_extent_backrefs(rec);
+		if (repair && (!cur_err || fixed))
+			clear_extent_dirty(root->fs_info->excluded_extents,
+					   rec->start,
+					   rec->start + rec->max_size - 1,
+					   GFP_NOFS);
 		free(rec);
 	}
 repair_abort:
@@ -7067,9 +7072,13 @@ static int check_chunk_refs(struct btrfs_root *root,
 	u64 devid;
 	u64 offset;
 	u64 length;
+	int metadump_v2 = 0;
 	int i;
 	int ret = 0;
 	int rescan = 0;
+
+	metadump_v2 = !!(btrfs_super_flags(root->fs_info->super_copy) &
+		BTRFS_SUPER_FLAG_METADUMP_V2);
 
 	block_group_item = lookup_cache_extent(&block_group_cache->tree,
 					       chunk_rec->offset,
@@ -7080,7 +7089,8 @@ static int check_chunk_refs(struct btrfs_root *root,
 					       cache);
 		if (chunk_rec->length != block_group_rec->offset ||
 		    chunk_rec->offset != block_group_rec->objectid ||
-		    chunk_rec->type_flags != block_group_rec->flags) {
+		    (!metadump_v2 &&
+		     chunk_rec->type_flags != block_group_rec->flags)) {
 			if (!silent)
 				fprintf(stderr,
 					"Chunk[%llu, %u, %llu]: length(%llu), offset(%llu), type(%llu) mismatch with block group[%llu, %u, %llu]: offset(%llu), objectid(%llu), flags(%llu)\n",
@@ -7113,6 +7123,9 @@ static int check_chunk_refs(struct btrfs_root *root,
 				chunk_rec->type_flags);
 		ret = 1;
 	}
+
+	if (metadump_v2)
+		return ret;
 
 	length = calc_stripe_length(chunk_rec->type_flags, chunk_rec->length,
 				    chunk_rec->num_stripes);
@@ -7185,7 +7198,7 @@ int check_chunks(struct btrfs_root *root,
 					 cache);
 		err = check_chunk_refs(root, chunk_rec, block_group_cache,
 				       dev_extent_cache, silent);
-		if (err)
+		if (err < 0)
 			ret = err;
 		if (err == 0 && good)
 			list_add_tail(&chunk_rec->list, good);
@@ -7195,6 +7208,10 @@ int check_chunks(struct btrfs_root *root,
 			list_add_tail(&chunk_rec->list, bad);
 		chunk_item = next_cache_extent(chunk_item);
 	}
+
+	if (btrfs_super_flags(root->fs_info->super_copy) &
+	    BTRFS_SUPER_FLAG_METADUMP_V2)
+		return ret;
 
 	list_for_each_entry(bg_rec, &block_group_cache->block_groups, list) {
 		if (!silent)
@@ -8688,6 +8705,7 @@ int cmd_check(int argc, char **argv)
 		goto err_out;
 	}
 
+	fprintf(stderr, "is metadump v2 set %llu\n", btrfs_super_flags(info->super_copy) &BTRFS_SUPER_FLAG_METADUMP_V2); 
 	fprintf(stderr, "info is %p\n", info);
 	root = info->fs_root;
 
