@@ -2311,8 +2311,9 @@ int btrfs_recover_chunk_tree(char *path, int verbose, int yes)
 
 	print_scan_result(&rc);
 
-	ret = check_chunks(&rc.chunk, &rc.bg, &rc.devext, &rc.good_chunks,
-			   &rc.bad_chunks, &rc.rebuild_chunks, 1);
+	ret = check_chunks(NULL, &rc.chunk, &rc.bg, &rc.devext,
+			   &rc.good_chunks, &rc.bad_chunks,
+			   &rc.rebuild_chunks, 1);
 	if (ret) {
 		if (!list_empty(&rc.bg.block_groups) ||
 		    !list_empty(&rc.devext.no_chunk_orphans)) {

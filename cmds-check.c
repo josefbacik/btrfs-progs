@@ -7077,8 +7077,9 @@ static int check_chunk_refs(struct btrfs_root *root,
 	int ret = 0;
 	int rescan = 0;
 
-	metadump_v2 = !!(btrfs_super_flags(root->fs_info->super_copy) &
-		BTRFS_SUPER_FLAG_METADUMP_V2);
+	if (root)
+		metadump_v2 = !!(btrfs_super_flags(root->fs_info->super_copy) &
+			BTRFS_SUPER_FLAG_METADUMP_V2);
 
 	block_group_item = lookup_cache_extent(&block_group_cache->tree,
 					       chunk_rec->offset,
@@ -7209,8 +7210,9 @@ int check_chunks(struct btrfs_root *root,
 		chunk_item = next_cache_extent(chunk_item);
 	}
 
-	if (btrfs_super_flags(root->fs_info->super_copy) &
-	    BTRFS_SUPER_FLAG_METADUMP_V2)
+	if (root &&
+	    (btrfs_super_flags(root->fs_info->super_copy) &
+	     BTRFS_SUPER_FLAG_METADUMP_V2))
 		return ret;
 
 	list_for_each_entry(bg_rec, &block_group_cache->block_groups, list) {
