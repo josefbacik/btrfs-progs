@@ -224,10 +224,13 @@ int btrfs_open_devices(struct btrfs_fs_devices *fs_devices, int flags)
 		if (posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED))
 			fprintf(stderr, "Warning, could not drop caches\n");
 
-		if (device->devid == fs_devices->latest_devid)
+		if (device->devid == fs_devices->latest_devid) {
+			fprintf(stderr, "latest devid is %d, fd is %d\n", fs_devices->latest_devid, fd);
 			fs_devices->latest_bdev = fd;
+		}
 		if (device->devid == fs_devices->lowest_devid)
 			fs_devices->lowest_bdev = fd;
+		fprintf(stderr, "devid %llu is fd %d, name is %s\n", device->devid, fd, device->name);
 		device->fd = fd;
 		if (flags & O_RDWR)
 			device->writeable = 1;
@@ -1617,6 +1620,9 @@ static int read_one_chunk(struct btrfs_root *root, struct btrfs_key *key,
 	map->type = btrfs_chunk_type(leaf, chunk);
 	map->sub_stripes = btrfs_chunk_sub_stripes(leaf, chunk);
 
+	fprintf(stderr, "reading chunk %llu-%llu, num stripes %d\n",
+		logical, length, map->num_stripes);
+
 	for (i = 0; i < num_stripes; i++) {
 		map->stripes[i].physical =
 			btrfs_stripe_offset_nr(leaf, chunk, i);
@@ -1775,6 +1781,7 @@ int btrfs_read_sys_array(struct btrfs_root *root)
 
 		if (key.type == BTRFS_CHUNK_ITEM_KEY) {
 			chunk = (struct btrfs_chunk *)(ptr - (u8 *)super_copy);
+			fprintf(stderr, "reading chunk from super\n");
 			ret = read_one_chunk(root, &key, sb, chunk);
 			if (ret)
 				break;
@@ -1837,6 +1844,7 @@ int btrfs_read_chunk_tree(struct btrfs_root *root)
 		} else if (found_key.type == BTRFS_CHUNK_ITEM_KEY) {
 			struct btrfs_chunk *chunk;
 			chunk = btrfs_item_ptr(leaf, slot, struct btrfs_chunk);
+			fprintf(stderr, "reading from chunk tree\n");
 			ret = read_one_chunk(root, &found_key, leaf, chunk);
 			BUG_ON(ret);
 		}

@@ -43,8 +43,8 @@ static int check_tree_block(struct btrfs_root *root, struct extent_buffer *buf)
 	int ret = 1;
 
 	if (buf->start != btrfs_header_bytenr(buf)) {
-//		printk("Check tree block failed, want=%Lu, have=%Lu\n",
-//		       buf->start, btrfs_header_bytenr(buf));
+		printk("Check tree block failed, want=%Lu, have=%Lu\n",
+		       buf->start, btrfs_header_bytenr(buf));
 		return ret;
 	}
 
@@ -222,6 +222,9 @@ int read_whole_eb(struct btrfs_fs_info *info, struct extent_buffer *eb, int mirr
 			eb->fd = device->fd;
 			device->total_ios++;
 			eb->dev_bytenr = multi->stripes[0].physical;
+			if (eb->start == (u64)7399213629440)
+				fprintf(stderr, "physical is %llu, dev %llu, stripes %d\n",
+					eb->dev_bytenr, device->devid, multi->num_stripes);
 			kfree(multi);
 			multi = NULL;
 		} else {
@@ -266,6 +269,8 @@ struct extent_buffer *read_tree_block(struct btrfs_root *root, u64 bytenr,
 	if (btrfs_buffer_uptodate(eb, parent_transid))
 		return eb;
 
+	if (bytenr == (u64)7399213629440)
+		fprintf(stderr, "reading our block\n");
 	while (1) {
 		ret = read_whole_eb(root->fs_info, eb, mirror_num);
 		if (ret == 0 && check_tree_block(root, eb) == 0 &&
@@ -1009,7 +1014,8 @@ void btrfs_cleanup_all_caches(struct btrfs_fs_info *fs_info)
 
 int btrfs_scan_fs_devices(int fd, const char *path,
 			  struct btrfs_fs_devices **fs_devices,
-			  u64 sb_bytenr, int super_recover)
+			  u64 sb_bytenr, int super_recover,
+			  int skip_devices)
 {
 	u64 total_devs;
 	u64 dev_size;
@@ -1036,7 +1042,7 @@ int btrfs_scan_fs_devices(int fd, const char *path,
 		return ret;
 	}
 
-	if (total_devs != 1) {
+	if (!skip_devices && total_devs != 1) {
 		ret = btrfs_scan_lblkid();
 		if (ret)
 			return ret;
@@ -1118,7 +1124,8 @@ static struct btrfs_fs_info *__open_ctree_fd(int fp, const char *path,
 		fs_info->on_restoring = 1;
 
 	ret = btrfs_scan_fs_devices(fp, path, &fs_devices, sb_bytenr,
-				    (flags & OPEN_CTREE_RECOVER_SUPER));
+				    (flags & OPEN_CTREE_RECOVER_SUPER),
+				    (flags & OPEN_CTREE_NO_DEVICES));
 	if (ret)
 		goto out;
 
@@ -1136,16 +1143,18 @@ static struct btrfs_fs_info *__open_ctree_fd(int fp, const char *path,
 		goto out;
 
 	disk_super = fs_info->super_copy;
-	if (!(flags & OPEN_CTREE_RECOVER_SUPER))
+	if (!(flags & OPEN_CTREE_RECOVER_SUPER)) {
+		fprintf(stderr, "latest bdev is %d, fp is %d\n", fs_devices->latest_bdev, fp);
 		ret = btrfs_read_dev_super(fs_devices->latest_bdev,
 					   disk_super, sb_bytenr, 1);
-	else
+	} else
 		ret = btrfs_read_dev_super(fp, disk_super, sb_bytenr, 0);
 	if (ret) {
 		printk("No valid btrfs found\n");
 		goto out_devices;
 	}
 
+	fprintf(stderr, "used super %u\n", *(u8 *)disk_super);
 	memcpy(fs_info->fsid, &disk_super->fsid, BTRFS_FSID_SIZE);
 
 	ret = btrfs_check_fs_compatibility(fs_info->super_copy,
@@ -1232,8 +1241,10 @@ int btrfs_read_dev_super(int fd, struct btrfs_super_block *sb, u64 sb_bytenr,
 	int max_super = super_recover ? BTRFS_SUPER_MIRROR_MAX : 1;
 	u64 transid = 0;
 	u64 bytenr;
+	u8 *ptr;
 
 	if (sb_bytenr != BTRFS_SUPER_INFO_OFFSET) {
+		fprintf(stderr, "reading sb bytenr %llu\n", sb_bytenr);
 		ret = pread64(fd, &buf, sizeof(buf), sb_bytenr);
 		if (ret < sizeof(buf))
 			return -1;
@@ -1255,6 +1266,7 @@ int btrfs_read_dev_super(int fd, struct btrfs_super_block *sb, u64 sb_bytenr,
 
 	for (i = 0; i < max_super; i++) {
 		bytenr = btrfs_sb_offset(i);
+		fprintf(stderr, "reading sb bytenr %llu fd %d\n", bytenr, fd);
 		ret = pread64(fd, &buf, sizeof(buf), bytenr);
 		if (ret < sizeof(buf))
 			break;
@@ -1280,10 +1292,13 @@ int btrfs_read_dev_super(int fd, struct btrfs_super_block *sb, u64 sb_bytenr,
 		}
 
 		if (btrfs_super_generation(&buf) > transid) {
+			fprintf(stderr, "using mirror %d\n", i);
 			memcpy(sb, &buf, sizeof(*sb));
 			transid = btrfs_super_generation(&buf);
 		}
 	}
+	ptr = sb;
+	fprintf(stderr, "sb csum is %u\n", *ptr);
 
 	return transid > 0 ? 0 : -1;
 }

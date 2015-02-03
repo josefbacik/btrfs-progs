@@ -128,6 +128,7 @@ struct mdrestore_struct {
 	size_t num_threads;
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
+	pthread_cond_t num_items_cond;
 
 	struct rb_root chunk_tree;
 	struct rb_root physical_tree;
@@ -148,6 +149,7 @@ struct mdrestore_struct {
 	int fixup_offset;
 	int multi_devices;
 	int clear_space_cache;
+	int done_waiting;
 	struct btrfs_fs_info *info;
 };
 
@@ -1498,6 +1500,8 @@ static int update_super(struct mdrestore_struct *mdres, u8 *buffer)
 						     super->dev_item.devid);
 			physical = logical_to_physical(mdres, key.offset,
 						       &size);
+			if (key.offset == 7399213629440)
+				fprintf(stderr, "remapping in super\n");
 			if (size != (u64)-1) {
 				u64 old = btrfs_stack_stripe_offset(&chunk->stripe);
 
@@ -1529,6 +1533,8 @@ static int update_super(struct mdrestore_struct *mdres, u8 *buffer)
 	btrfs_set_super_flags(super, flags);
 	btrfs_set_super_sys_array_size(super, new_array_size);
 	csum_block(buffer, BTRFS_SUPER_INFO_SIZE);
+	ptr = buffer;
+	fprintf(stderr, "csum is %u\n", *ptr);
 
 	return 0;
 }
@@ -1618,10 +1624,14 @@ static int fixup_chunk_tree_block(struct mdrestore_struct *mdres,
 			struct btrfs_chunk chunk;
 			struct btrfs_key key;
 			u64 type, physical, size = (u64)-1;
+			int debug = 0;
 
 			btrfs_item_key_to_cpu(eb, &key, i);
 			if (key.type != BTRFS_CHUNK_ITEM_KEY)
 				continue;
+
+			debug = key.offset == (u64)7399213629440;
+
 			truncate_item(eb, i, sizeof(chunk));
 			read_extent_buffer(eb, &chunk,
 					   btrfs_item_ptr_offset(eb, i),
@@ -1642,16 +1652,11 @@ static int fixup_chunk_tree_block(struct mdrestore_struct *mdres,
 			btrfs_set_stack_chunk_num_stripes(&chunk, 1);
 			btrfs_set_stack_chunk_sub_stripes(&chunk, 0);
 			btrfs_set_stack_stripe_devid(&chunk.stripe, mdres->devid);
-			if (size != (u64)-1) {
-				u64 old = btrfs_stack_stripe_offset(&chunk.stripe);
-				if (old != physical)
-					fprintf(stderr, "remapped chunk %llu to %llu\n",
-						key.offset, physical);
+			if (size != (u64)-1)
 				btrfs_set_stack_stripe_offset(&chunk.stripe,
 							      physical);
-			} else {
-				fprintf(stderr, "couldn't remap offset %llu?\n", key.offset);
-			}
+			if (debug)
+				fprintf(stderr, "definitely remapped this thing\n");
 			memcpy(chunk.stripe.dev_uuid, mdres->uuid,
 			       BTRFS_UUID_SIZE);
 			write_extent_buffer(eb, &chunk,
@@ -1819,7 +1824,14 @@ static void *restore_worker(void *data)
 		pthread_mutex_lock(&mdres->mutex);
 		if (err && !mdres->error)
 			mdres->error = err;
+		if (mdres->done_waiting)
+			fprintf(stderr, "finished waiting before we were done\n");
 		mdres->num_items--;
+		if (!mdres->num_items || err) {
+			fflush(mdres->out);
+			fsync(outfd);
+			pthread_cond_signal(&mdres->num_items_cond);
+		}
 		pthread_mutex_unlock(&mdres->mutex);
 
 		free(async->buffer);
@@ -1852,6 +1864,7 @@ static void mdrestore_destroy(struct mdrestore_struct *mdres, int num_threads)
 		pthread_join(mdres->threads[i], NULL);
 
 	pthread_cond_destroy(&mdres->cond);
+	pthread_cond_destroy(&mdres->num_items_cond);
 	pthread_mutex_destroy(&mdres->mutex);
 	free(mdres->threads);
 }
@@ -1878,6 +1891,7 @@ static int mdrestore_init(struct mdrestore_struct *mdres,
 	mdres->clear_space_cache = 0;
 	mdres->last_physical_offset = 0;
 	mdres->alloced_chunks = 0;
+	mdres->done_waiting = 0;
 
 	if (!num_threads)
 		return 0;
@@ -2012,16 +2026,15 @@ static int wait_for_worker(struct mdrestore_struct *mdres)
 
 	pthread_mutex_lock(&mdres->mutex);
 	ret = mdres->error;
+	fprintf(stderr, "num items is %llu\n", mdres->num_items);
 	while (!ret && mdres->num_items > 0) {
-		struct timespec ts = {
-			.tv_sec = 0,
-			.tv_nsec = 10000000,
-		};
-		pthread_mutex_unlock(&mdres->mutex);
-		nanosleep(&ts, NULL);
-		pthread_mutex_lock(&mdres->mutex);
+		pthread_cond_wait(&mdres->num_items_cond, &mdres->mutex);
 		ret = mdres->error;
+		fprintf(stderr, "num items is %llu\n", mdres->num_items);
 	}
+	if (ret)
+		fprintf(stderr, "ret from mdres %d\n", ret);
+	mdres->done_waiting = 1;
 	pthread_mutex_unlock(&mdres->mutex);
 	return ret;
 }
@@ -2407,7 +2420,6 @@ static void remap_overlapping_chunks(struct mdrestore_struct *mdres)
 		fs_chunk = list_first_entry(&mdres->overlapping_chunks,
 					    struct fs_chunk, list);
 		list_del_init(&fs_chunk->list);
-		fprintf(stderr, "remapping logical chunk %llu to %llu\n", fs_chunk->logical, mdres->last_physical_offset);
 		if (range_contains_super(fs_chunk->physical,
 					 fs_chunk->bytes)) {
 			fprintf(stderr, "Remapping a chunk that had a super "
@@ -2623,17 +2635,26 @@ static int restore_metadump(const char *input, FILE *out, int old_restore,
 		fprintf(stderr, "One of the threads errored out %d\n",
 			ret);
 
+	sleep(1);
 	if (!multi_devices && !old_restore) {
+		struct btrfs_root *root;
 		struct stat st;
 
-		info = open_ctree_fs_info(target, 0, 0,
+		/*
+		 * Use OPEN_CTREE_RECOVER_SUPER so it forces open_ctree_fd to
+		 * use the fd we pass in to find the super, not whatever random
+		 * disk it happens to find.
+		 */
+		root = open_ctree_fd(fileno(out), target, 0,
 					  OPEN_CTREE_PARTIAL |
-					  OPEN_CTREE_WRITES);
-		if (!info) {
+					  OPEN_CTREE_WRITES |
+					  OPEN_CTREE_NO_DEVICES);
+		if (!root) {
 			fprintf(stderr, "unable to open %s\n", target);
 			ret = -EIO;
 			goto out;
 		}
+		info = root->fs_info;
 
 		if (stat(target, &st)) {
 			fprintf(stderr, "statting %s failed\n", target);

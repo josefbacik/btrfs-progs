@@ -7273,7 +7273,7 @@ static int check_device_used(struct device_record *dev_rec,
 }
 
 /* check btrfs_dev_item -> btrfs_dev_extent */
-static int check_devices(struct rb_root *dev_cache,
+static int check_devices(struct btrfs_root *root, struct rb_root *dev_cache,
 			 struct device_extent_tree *dev_extent_cache)
 {
 	struct rb_node *dev_node;
@@ -7281,6 +7281,10 @@ static int check_devices(struct rb_root *dev_cache,
 	struct device_extent_record *dext_rec;
 	int err;
 	int ret = 0;
+
+	if ((btrfs_super_flags(root->fs_info->super_copy) &
+	     BTRFS_SUPER_FLAG_METADUMP_V2))
+		return 0;
 
 	dev_node = rb_first(dev_cache);
 	while (dev_node) {
@@ -7574,7 +7578,7 @@ again:
 		goto out;
 	}
 
-	err = check_devices(&dev_cache, &dev_extent_cache);
+	err = check_devices(root, &dev_cache, &dev_extent_cache);
 	if (err && !ret) {
 		fprintf(stderr, "check_devices %d\n", err);
 		ret = err;
