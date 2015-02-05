@@ -5256,14 +5256,12 @@ normal:
 	if (rec->flag_block_full_backref != -1 &&
 	    rec->flag_block_full_backref != 0)
 		rec->bad_full_backref = 1;
-	rec->flag_block_full_backref = 0;
 	return 0;
 full_backref:
 	*flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
 	if (rec->flag_block_full_backref != -1 &&
 	    rec->flag_block_full_backref != 1)
 		rec->bad_full_backref = 1;
-	rec->flag_block_full_backref = 1;
 	return 0;
 }
 
@@ -5364,7 +5362,6 @@ static int run_next_block(struct btrfs_root *root,
 				flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
 			}
 		} else if (flags & BTRFS_BLOCK_FLAG_FULL_BACKREF) {
-			rec->flag_block_full_backref = 1;
 		}
 	} else {
 		flags = 0;
@@ -5387,33 +5384,30 @@ static int run_next_block(struct btrfs_root *root,
 			 * last snapshot, so check for this case.
 			 */
 			if (!btrfs_header_flag(buf, BTRFS_HEADER_FLAG_RELOC) &&
-			    btrfs_header_generation(buf) > ri->last_snapshot)
+			    btrfs_header_generation(buf) > ri->last_snapshot) {
+				flags &= ~BTRFS_BLOCK_FLAG_FULL_BACKREF;
 				rec->bad_full_backref = 1;
-		}
-		if (rec->bad_full_backref) {
-			parent = 0;
-			owner = btrfs_header_owner(buf);
-		} else {
-			parent = bytenr;
-			owner = 0;
+			}
 		}
 	} else {
 		if (ri != NULL &&
 		    (ri->objectid == BTRFS_TREE_RELOC_OBJECTID ||
-		     btrfs_header_flag(buf, BTRFS_HEADER_FLAG_RELOC)))
+		     btrfs_header_flag(buf, BTRFS_HEADER_FLAG_RELOC))) {
+			flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
 			rec->bad_full_backref = 1;
-
-		if (rec->bad_full_backref) {
-			parent = bytenr;
-			owner = 0;
-		} else {
-			parent = 0;
-			owner = btrfs_header_owner(buf);
 		}
 	}
 
-	if (rec->bad_full_backref)
-		fprintf(stderr, "bad full backref for %llu\n", bytenr);
+	if (flags & BTRFS_BLOCK_FLAG_FULL_BACKREF) {
+		rec->flag_block_full_backref = 1;
+		parent = bytenr;
+		owner = 0;
+	} else {
+		rec->flag_block_full_backref = 0;
+		parent = 0;
+		owner = btrfs_header_owner(buf);
+	}
+
 	ret = check_block(root, extent_cache, buf, flags);
 	if (ret) {
 		fprintf(stderr, "bad block %llu\n", buf->start);
@@ -6607,13 +6601,6 @@ static int fixup_extent_refs(struct btrfs_fs_info *info,
 	if (rec->flag_block_full_backref)
 		flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
 
-	if (rec->bad_full_backref) {
-		if (!rec->flag_block_full_backref)
-			flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
-		else
-			flags = 0;
-	}
-
 	path = btrfs_alloc_path();
 	if (!path)
 		return -ENOMEM;
@@ -6744,13 +6731,13 @@ static int fixup_extent_flags(struct btrfs_fs_info *fs_info,
 			    struct btrfs_extent_item);
 	flags = btrfs_extent_flags(path->nodes[0], ei);
 	if (rec->flag_block_full_backref) {
-		fprintf(stderr, "clearing full backref on %llu\n",
-			(unsigned long long)key.objectid);
-		flags &= ~BTRFS_BLOCK_FLAG_FULL_BACKREF;
-	} else {
 		fprintf(stderr, "setting full backref on %llu\n",
 			(unsigned long long)key.objectid);
 		flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
+	} else {
+		fprintf(stderr, "clearing full backref on %llu\n",
+			(unsigned long long)key.objectid);
+		flags &= ~BTRFS_BLOCK_FLAG_FULL_BACKREF;
 	}
 	btrfs_set_extent_flags(path->nodes[0], ei, flags);
 	btrfs_mark_buffer_dirty(path->nodes[0]);
@@ -7047,9 +7034,8 @@ static int check_extent_refs(struct btrfs_root *root,
 			cur_err = 1;
 		}
 		if (rec->bad_full_backref) {
-			fprintf(stderr, "bad full backref, %sset on [%llu]\n",
-				(rec->flag_block_full_backref) ? "was " :
-				"wasn't ", (unsigned long long)rec->start);
+			fprintf(stderr, "bad full backref, on [%llu]\n",
+				(unsigned long long)rec->start);
 			if (repair) {
 				ret = fixup_extent_flags(root->fs_info, rec);
 				if (ret)
