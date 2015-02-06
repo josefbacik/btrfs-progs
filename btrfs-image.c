@@ -1458,6 +1458,7 @@ static int update_super(struct mdrestore_struct *mdres, u8 *buffer)
 	struct btrfs_chunk *chunk;
 	struct btrfs_disk_key *disk_key;
 	struct btrfs_key key;
+	u64 flags = btrfs_super_flags(super);
 	u32 new_array_size = 0;
 	u32 array_size;
 	u32 cur = 0;
@@ -1513,6 +1514,8 @@ static int update_super(struct mdrestore_struct *mdres, u8 *buffer)
 	if (mdres->clear_space_cache)
 		btrfs_set_super_cache_generation(super, 0);
 
+	flags |= BTRFS_SUPER_FLAG_METADUMP_V2;
+	btrfs_set_super_flags(super, flags);
 	btrfs_set_super_sys_array_size(super, new_array_size);
 	csum_block(buffer, BTRFS_SUPER_INFO_SIZE);
 
