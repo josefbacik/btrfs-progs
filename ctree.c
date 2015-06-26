@@ -2595,6 +2595,8 @@ int btrfs_del_ptr(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 
 	nritems = btrfs_header_nritems(parent);
 	if (slot != nritems -1) {
+		fprintf(stderr, "nritems is %u, slot %d, len is %lu\n",
+			nritems, slot, sizeof(struct btrfs_key_ptr) * nritems - slot - 1);
 		memmove_extent_buffer(parent,
 			      btrfs_node_key_ptr_offset(slot),
 			      btrfs_node_key_ptr_offset(slot + 1),
