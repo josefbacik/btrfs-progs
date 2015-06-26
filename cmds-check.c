@@ -3222,10 +3222,12 @@ static int repair_btree(struct btrfs_root *root,
 	struct btrfs_path *path;
 	struct btrfs_corrupt_block *corrupt;
 	struct cache_extent *cache;
+	struct extent_buffer *l;
 	struct btrfs_key key;
 	u64 offset;
 	int level;
 	int ret = 0;
+	int slot;
 
 	if (cache_tree_empty(corrupt_blocks))
 		return 0;
@@ -3260,12 +3262,32 @@ static int repair_btree(struct btrfs_root *root,
 		ret = btrfs_search_slot(trans, root, &key, path, 0, 1);
 		if (ret < 0)
 			goto out;
-		offset = btrfs_node_blockptr(path->nodes[level],
-					     path->slots[level]);
+		l = path->nodes[level];
+		slot = path->slots[level];
+		if (path->slots[level] >= btrfs_header_nritems(l)) {
+			int i;
+
+			ret = 0;
+			for (i = 0; i < btrfs_header_nritems(l); i++) {
+				struct btrfs_key found;
+
+				if (level)
+					btrfs_node_key_to_cpu(l, &found, i);
+				else
+					btrfs_item_key_to_cpu(l, &found, i);
+				if (!memcmp(&key, &found, sizeof(found)))
+					break;
+			}
+			if (i >= btrfs_header_nritems(l)) {
+				fprintf(stderr, "Couldn't find key to delete\n");
+				goto next;
+			}
+			slot = i;
+		}
+		offset = btrfs_node_blockptr(l, slot);
 
 		/* Remove the ptr */
-		ret = btrfs_del_ptr(trans, root, path, level,
-				    path->slots[level]);
+		ret = btrfs_del_ptr(trans, root, path, level, slot);
 		if (ret < 0)
 			goto out;
 		/*
@@ -3276,6 +3298,7 @@ static int repair_btree(struct btrfs_root *root,
 		ret = btrfs_free_extent(trans, root, offset, root->nodesize,
 					0, root->root_key.objectid,
 					level - 1, 0);
+next:
 		cache = next_cache_extent(cache);
 	}
 
