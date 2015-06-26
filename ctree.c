@@ -520,6 +520,12 @@ btrfs_check_leaf(struct btrfs_root *root, struct btrfs_disk_key *parent_key,
 				(unsigned)BTRFS_LEAF_DATA_SIZE(root));
 			goto fail;
 		}
+		if (btrfs_item_end_nr(buf, i) >= BTRFS_LEAF_DATA_SIZE(root)) {
+			ret = BTRFS_TREE_BLOCK_INVALID_OFFSETS;
+			fprintf(stderr, "bad item offset/len pair %u\n",
+				btrfs_item_end_nr(buf, i));
+			goto fail;
+		}
 	}
 	return BTRFS_TREE_BLOCK_CLEAN;
 fail:
