@@ -1780,6 +1780,8 @@ static int walk_down_tree(struct btrfs_root *root, struct btrfs_path *path,
 				btrfs_node_key_to_cpu(path->nodes[*level],
 						      &node_key,
 						      path->slots[*level]);
+				fprintf(stderr, "adding corrupt for parent %llu, bytenr %llu\n",
+					path->nodes[*level]->start, bytenr);
 				btrfs_add_corrupt_extent_record(root->fs_info,
 						&node_key,
 						path->nodes[*level]->start,
@@ -3253,6 +3255,7 @@ static int repair_btree(struct btrfs_root *root,
 		key.type = corrupt->key.type;
 		key.offset = corrupt->key.offset;
 
+		fprintf(stderr, "fixing corrupt block %llu\n", cache->start);
 		/*
 		 * Here we don't want to do any tree balance, since it may
 		 * cause a balance with corrupted brother leaf/node,
@@ -3279,6 +3282,7 @@ static int repair_btree(struct btrfs_root *root,
 					break;
 			}
 			if (i >= btrfs_header_nritems(l)) {
+				btrfs_release_path(path);
 				fprintf(stderr, "Couldn't find key to delete\n");
 				goto next;
 			}
