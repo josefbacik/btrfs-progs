@@ -529,14 +529,16 @@ btrfs_check_leaf(struct btrfs_root *root, struct btrfs_disk_key *parent_key,
 	}
 	return BTRFS_TREE_BLOCK_CLEAN;
 fail:
-	if (btrfs_header_owner(buf) == BTRFS_EXTENT_TREE_OBJECTID) {
+	if (ret == BTRFS_TREE_BLOCK_INVALID_PARENT_KEY ||
+	    btrfs_header_owner(buf) == BTRFS_EXTENT_TREE_OBJECTID) {
 		if (parent_key)
 			btrfs_disk_key_to_cpu(&cpukey, parent_key);
 		else
 			btrfs_item_key_to_cpu(buf, &cpukey, 0);
 
 		btrfs_add_corrupt_extent_record(root->fs_info, &cpukey,
-						buf->start, buf->len, 0);
+						buf->start, buf->len,
+						btrfs_header_level(buf) + 1);
 	}
 	return ret;
 }
