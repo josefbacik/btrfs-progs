@@ -135,10 +135,12 @@ static int __csum_tree_block_size(struct extent_buffer *buf, u16 csum_size,
 	if (verify) {
 		if (memcmp_extent_buffer(buf, result, 0, csum_size)) {
 			if (!silent)
-				printk("checksum verify failed on %llu found %08X wanted %08X\n",
+				printk("checksum verify failed on %llu found %08X wanted %08X, dev bytenr %llu, devid %llu\n",
 				       (unsigned long long)buf->start,
 				       *((u32 *)result),
-				       *((u32*)(char *)buf->data));
+				       *((u32*)(char *)buf->data),
+				       (unsigned long long)buf->dev_bytenr,
+				       (unsigned long long)buf->devid);
 			return 1;
 		}
 	} else {
@@ -265,6 +267,7 @@ int read_whole_eb(struct btrfs_fs_info *info, struct extent_buffer *eb, int mirr
 				return -EIO;
 			}
 
+			eb->devid = device->devid;
 			eb->fd = device->fd;
 			device->total_ios++;
 			eb->dev_bytenr = multi->stripes[0].physical;
@@ -277,6 +280,7 @@ int read_whole_eb(struct btrfs_fs_info *info, struct extent_buffer *eb, int mirr
 					break;
 			}
 
+			eb->devid = device->devid;
 			eb->fd = device->fd;
 			eb->dev_bytenr = eb->start;
 			device->total_ios++;
