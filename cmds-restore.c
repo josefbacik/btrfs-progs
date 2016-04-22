@@ -1256,12 +1256,18 @@ static int do_list_roots(struct btrfs_root *root)
 }
 
 static struct btrfs_root *open_fs(const char *dev, u64 root_location,
-				  int super_mirror, int list_roots)
+				  u64 fs_location, int super_mirror,
+				  int list_roots, int only_chunk)
 {
 	struct btrfs_fs_info *fs_info = NULL;
 	struct btrfs_root *root = NULL;
+	enum btrfs_open_ctree_flags flags = OPEN_CTREE_PARTIAL;
 	u64 bytenr;
+	int tree_root_fucked = 0;
 	int i;
+
+	if (only_chunk)
+		flags |= __OPEN_CTREE_RETURN_CHUNK_ROOT;
 
 	for (i = super_mirror; i < BTRFS_SUPER_MIRROR_MAX; i++) {
 		bytenr = btrfs_sb_offset(i);
@@ -1290,24 +1296,50 @@ static struct btrfs_root *open_fs(const char *dev, u64 root_location,
 		root->node = read_tree_block(root, root_location,
 					     root->leafsize, generation);
 		if (!extent_buffer_uptodate(root->node)) {
-			fprintf(stderr, "Error opening tree root\n");
-			close_ctree(root);
-			return NULL;
+			if (!only_chunk) {
+				fprintf(stderr, "Error opening tree root\n");
+				close_ctree(root);
+				return NULL;
+			} else {
+				tree_root_fucked = 10000;
+			}
 		}
 	}
 
-	if (!list_roots && !fs_info->fs_root) {
+	if (!list_roots && (!fs_info->fs_root || fs_location)) {
 		struct btrfs_key key;
 
-		key.objectid = BTRFS_FS_TREE_OBJECTID;
-		key.type = BTRFS_ROOT_ITEM_KEY;
-		key.offset = (u64)-1;
-		fs_info->fs_root = btrfs_read_fs_root_no_cache(fs_info, &key);
-		if (IS_ERR(fs_info->fs_root)) {
-			fprintf(stderr, "Couldn't read fs root: %ld\n",
-				PTR_ERR(fs_info->fs_root));
-			close_ctree(fs_info->tree_root);
-			return NULL;
+		if (tree_root_fucked && fs_location) {
+			root = calloc(1, sizeof(struct btrfs_root));
+			if (!root) {
+				fprintf(stderr, "Problem allocating root\n");
+				close_ctree(fs_info->tree_root);
+				return NULL;
+			}
+			__setup_root(fs_info->tree_root->nodesize,
+				     fs_info->tree_root->leafsize,
+				     fs_info->tree_root->sectorsize,
+				     fs_info->tree_root->stripesize,
+				     root, fs_info, BTRFS_FS_TREE_OBJECTID);
+			root->node = read_tree_block(root, fs_location,
+						     root->leafsize, 0);
+			if (!extent_buffer_uptodate(root->node)) {
+				fprintf(stderr, "Couldn't open fs tree\n");
+				close_ctree(root);
+				return NULL;
+			}
+			fs_info->fs_root = root;
+		} else if (!tree_root_fucked) {
+			key.objectid = BTRFS_FS_TREE_OBJECTID;
+			key.type = BTRFS_ROOT_ITEM_KEY;
+			key.offset = (u64)-1;
+			fs_info->fs_root = btrfs_read_fs_root_no_cache(fs_info, &key);
+			if (IS_ERR(fs_info->fs_root)) {
+				fprintf(stderr, "Couldn't read fs root: %ld\n",
+					PTR_ERR(fs_info->fs_root));
+				close_ctree(fs_info->tree_root);
+				return NULL;
+			}
 		}
 	}
 
@@ -1418,6 +1450,7 @@ int cmd_restore(int argc, char **argv)
 	int super_mirror = 0;
 	int find_dir = 0;
 	int list_roots = 0;
+	int only_chunk = 0;
 	const char *match_regstr = NULL;
 	int match_cflags = REG_EXTENDED | REG_NOSUB | REG_NEWLINE;
 	regex_t match_reg, *mreg = NULL;
@@ -1438,6 +1471,7 @@ int cmd_restore(int argc, char **argv)
 			{ "super", required_argument, NULL, 'u'},
 			{ "root", required_argument, NULL, 'r'},
 			{ "list-roots", no_argument, NULL, 'l'},
+			{ "only-chunk", no_argument, NULL, 'C'},
 			{ NULL, 0, NULL, 0}
 		};
 
@@ -1506,6 +1540,9 @@ int cmd_restore(int argc, char **argv)
 			case 'x':
 				get_xattrs = 1;
 				break;
+			case 'C':
+				only_chunk = 1;
+				break;
 			default:
 				usage(cmd_restore_usage);
 		}
@@ -1530,14 +1567,15 @@ int cmd_restore(int argc, char **argv)
 		return 1;
 	}
 
-	root = open_fs(argv[optind], tree_location, super_mirror, list_roots);
+	root = open_fs(argv[optind], tree_location, fs_location, super_mirror,
+		       list_roots, only_chunk);
 	if (root == NULL)
 		return 1;
 
 	if (list_roots)
 		goto out;
 
-	if (fs_location != 0) {
+	if (fs_location != 0 && root->node->start != fs_location) {
 		free_extent_buffer(root->node);
 		root->node = read_tree_block(root, fs_location, root->leafsize, 0);
 		if (!extent_buffer_uptodate(root->node)) {
