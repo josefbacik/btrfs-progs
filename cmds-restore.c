@@ -1475,7 +1475,7 @@ int cmd_restore(int argc, char **argv)
 			{ NULL, 0, NULL, 0}
 		};
 
-		opt = getopt_long(argc, argv, "sSxviot:u:dmf:r:lDc", long_options,
+		opt = getopt_long(argc, argv, "sSxviot:u:dmf:r:lDcC", long_options,
 					NULL);
 		if (opt < 0)
 			break;
