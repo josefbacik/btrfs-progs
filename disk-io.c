@@ -345,6 +345,7 @@ struct extent_buffer *read_tree_block(struct btrfs_root *root, u64 bytenr,
 		}
 		num_copies = btrfs_num_copies(&root->fs_info->mapping_tree,
 					      eb->start, eb->len);
+		printf("We have %d copies of block %llu, we're on copy %d\n", num_copies, (unsigned long long)bytenr, mirror_num);
 		if (num_copies == 1) {
 			ignore = 1;
 			continue;

@@ -230,6 +230,7 @@ int btrfs_open_devices(struct btrfs_fs_devices *fs_devices, int flags)
 			goto fail;
 		}
 
+		printf("Opening device %s\n", device->name);
 		if (posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED))
 			fprintf(stderr, "Warning, could not drop caches\n");
 
