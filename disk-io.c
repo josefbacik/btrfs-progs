@@ -141,7 +141,7 @@ static int __csum_tree_block_size(struct extent_buffer *buf, u16 csum_size,
 				       *((u32*)(char *)buf->data),
 				       (unsigned long long)buf->dev_bytenr,
 				       (unsigned long long)buf->devid);
-			return 1;
+			return 0;
 		}
 	} else {
 		write_extent_buffer(buf, result, 0, csum_size);
