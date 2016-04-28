@@ -54,6 +54,7 @@ static int ignore_errors = 0;
 static int overwrite = 0;
 static int get_xattrs = 0;
 static int dry_run = 0;
+static int allow_looping = 0;
 
 #define LZO_LEN 4
 #define PAGE_CACHE_SIZE 4096
@@ -696,7 +697,7 @@ static int copy_file(struct btrfs_root *root, int fd, struct btrfs_key *key,
 	}
 
 	while (1) {
-		if (loops >= 0 && loops++ >= 1024) {
+		if (!allow_looping && loops >= 0 && loops++ >= 1024) {
 			enum loop_response resp;
 
 			resp = ask_to_continue(file);
@@ -1472,11 +1473,12 @@ int cmd_restore(int argc, char **argv)
 			{ "root", required_argument, NULL, 'r'},
 			{ "list-roots", no_argument, NULL, 'l'},
 			{ "only-chunk", no_argument, NULL, 'C'},
+			{ "allow-looping", no_argument, NULL, 'A'},
 			{ NULL, 0, NULL, 0}
 		};
 
-		opt = getopt_long(argc, argv, "sSxviot:u:dmf:r:lDcC", long_options,
-					NULL);
+		opt = getopt_long(argc, argv, "sSxviot:u:dmf:r:lDcCA",
+				  long_options, NULL);
 		if (opt < 0)
 			break;
 
@@ -1542,6 +1544,9 @@ int cmd_restore(int argc, char **argv)
 				break;
 			case 'C':
 				only_chunk = 1;
+				break;
+			case 'A':
+				allow_looping = 0;
 				break;
 			default:
 				usage(cmd_restore_usage);
