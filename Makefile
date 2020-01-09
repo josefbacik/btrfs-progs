@@ -154,7 +154,8 @@ cmds_objects = cmds/subvolume.o cmds/filesystem.o cmds/device.o cmds/scrub.o \
 	       cmds/rescue-super-recover.o \
 	       cmds/property.o cmds/filesystem-usage.o cmds/inspect-dump-tree.o \
 	       cmds/inspect-dump-super.o cmds/inspect-tree-stats.o cmds/filesystem-du.o \
-	       mkfs/common.o check/mode-common.o check/mode-lowmem.o
+	       mkfs/common.o check/mode-common.o check/mode-lowmem.o \
+	       cmds/inspect-metadata-usage.o
 libbtrfs_objects = send-stream.o send-utils.o kernel-lib/rbtree.o btrfs-list.o \
 		   kernel-lib/radix-tree.o extent-cache.o extent_io.o \
 		   crypto/crc32c.o common/messages.o \

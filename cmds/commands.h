@@ -143,6 +143,7 @@ DECLARE_COMMAND(inspect);
 DECLARE_COMMAND(inspect_dump_super);
 DECLARE_COMMAND(inspect_dump_tree);
 DECLARE_COMMAND(inspect_tree_stats);
+DECLARE_COMMAND(inspect_metadata_usage);
 DECLARE_COMMAND(property);
 DECLARE_COMMAND(send);
 DECLARE_COMMAND(receive);
