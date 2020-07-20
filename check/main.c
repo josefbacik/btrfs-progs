@@ -65,6 +65,9 @@ struct btrfs_fs_info *global_info;
 struct task_ctx ctx = { 0 };
 struct cache_tree *roots_info_cache = NULL;
 
+static int josef = 0;
+static int dry_run = 0;
+
 enum btrfs_check_mode {
 	CHECK_MODE_ORIGINAL,
 	CHECK_MODE_LOWMEM,
@@ -1912,6 +1915,12 @@ static int repair_inode_isize(struct btrfs_trans_handle *trans,
 	struct btrfs_key key;
 	int ret;
 
+	if (dry_run) {
+		printf("dry_run: skipping inode isize repari for %llu\n",
+		       rec->ino);
+		return 0;
+	}
+
 	key.objectid = rec->ino;
 	key.type = BTRFS_INODE_ITEM_KEY;
 	key.offset = (u64)-1;
@@ -1952,6 +1961,11 @@ static int repair_inode_orphan_item(struct btrfs_trans_handle *trans,
 {
 	int ret;
 
+	if (dry_run) {
+		printf("dry_run: skipping adding orphan item for %llu\n",
+		       rec->ino);
+		return 0;
+	}
 	ret = btrfs_add_orphan_item(trans, root, path, rec->ino);
 	btrfs_release_path(path);
 	if (!ret)
@@ -1967,6 +1981,12 @@ static int repair_inode_nbytes(struct btrfs_trans_handle *trans,
 	struct btrfs_inode_item *ei;
 	struct btrfs_key key;
 	int ret = 0;
+
+	if (dry_run) {
+		printf("dry_run: skipping nbytes repair for ino %llu\n",
+		       rec->ino);
+		return 0;
+	}
 
 	key.objectid = rec->ino;
 	key.type = BTRFS_INODE_ITEM_KEY;
@@ -2366,6 +2386,11 @@ static int repair_inode_nlinks(struct btrfs_trans_handle *trans,
 	int type_recovered = 0;
 	int ret = 0;
 
+	if (dry_run) {
+		printf("dry_run: skipping nlinks repair for %llu\n", rec->ino);
+		return 0;
+	}
+
 	/*
 	 * Get file name and type first before these invalid inode ref
 	 * are deleted by remove_all_invalid_backref()
@@ -2468,17 +2493,88 @@ out:
 	return ret;
 }
 
+static void delete_bad_things(struct btrfs_trans_handle *trans,
+			      struct btrfs_root *root, struct btrfs_path *path,
+			      struct inode_record *rec,
+			      struct inode_backref *backref)
+{
+	struct btrfs_dir_item *di;
+	int ret;
+
+	if (backref->found_dir_item) {
+		di = btrfs_lookup_dir_item(trans, root, path, backref->dir,
+					   backref->name, backref->namelen,
+					   -1);
+		if (di) {
+			ret = btrfs_delete_one_dir_name(trans, root, path, di);
+			if (ret)
+				printf("Failed to delete dir item\n");
+		} else {
+			printf("no dir item found?\n");
+		}
+		btrfs_release_path(path);
+	}
+	if (backref->found_dir_index) {
+		di = btrfs_lookup_dir_index(trans, root, path, backref->dir,
+					    backref->name, backref->namelen,
+					    backref->index, -1);
+		if (di && !IS_ERR(di)) {
+			ret = btrfs_delete_one_dir_name(trans, root, path, di);
+			if (ret)
+				printf("Failed to delete dir name\n");
+		} else {
+			printf("Couldn't find the dir index\n");
+		}
+		btrfs_release_path(path);
+	}
+	if (backref->found_inode_ref) {
+		ret = btrfs_del_inode_ref(trans, root, backref->name,
+					  backref->namelen, rec->ino,
+					  backref->dir, NULL);
+		if (ret)
+			printf("Failed to delete inode ref\n");
+	}
+}
+
 static int repair_inode_no_item(struct btrfs_trans_handle *trans,
 				struct btrfs_root *root,
 				struct btrfs_path *path,
 				struct inode_record *rec)
 {
+	struct inode_backref *backref;
 	u8 filetype;
 	u32 mode = 0700;
 	int type_recovered = 0;
 	int ret = 0;
 
 	printf("Trying to rebuild inode:%llu\n", rec->ino);
+	if (josef) {
+		list_for_each_entry(backref, &rec->backrefs, list) {
+			if (backref->found_dir_item)
+				printf("deleting dir item [%llu DIR_ITEM %llu] name %s\n",
+				       backref->dir,
+				       btrfs_name_hash(backref->name,
+						       backref->namelen),
+				       backref->name);
+			if (backref->found_dir_index)
+				printf("deleting dir index [%llu DIR_INDEX %llu name %s\n",
+				       backref->dir, backref->index,
+				       backref->name);
+			if (backref->found_inode_ref)
+				printf("deleting inode ref [%llu INODE_REF %llu name %s\n",
+				       rec->ino, backref->dir,
+				       backref->name);
+			if (dry_run) {
+				printf("dry-run: skipping\n");
+				continue;
+			}
+			delete_bad_things(trans, root, path, rec, backref);
+		}
+	}
+	if (dry_run) {
+		printf("dry-run: skipping\n");
+		return 0;
+	}
 
 	type_recovered = !find_file_type(rec, &filetype);
 
@@ -2543,6 +2639,11 @@ static int repair_inode_discount_extent(struct btrfs_trans_handle *trans,
 	int found = 0;
 	int ret = 0;
 
+	if (dry_run) {
+		printf("dry-run: skipping discount extent size\n");
+		return 0;
+	}
+
 	node = rb_first(&rec->holes);
 
 	while (node) {
@@ -2585,6 +2686,12 @@ static int repair_inline_ram_bytes(struct btrfs_trans_handle *trans,
 	u64 on_disk_item_len;
 	int ret;
 
+	if (dry_run) {
+		printf("dry-run: skipping fixing ram_bytes for %llu\n",
+		       rec->ino);
+		return 0;
+	}
+
 	key.objectid = rec->ino;
 	key.offset = 0;
 	key.type = BTRFS_EXTENT_DATA_KEY;
@@ -2619,6 +2726,11 @@ static int repair_mismatch_dir_hash(struct btrfs_trans_handle *trans,
 	printf(
 	"Deleting bad dir items with invalid hash for root %llu ino %llu\n",
 		root->root_key.objectid, rec->ino);
+	if (dry_run) {
+		printf("dry_run: skipping\n");
+		return 0;
+	}
+
 	while (!list_empty(&rec->mismatch_dir_hash)) {
 		char *namebuf;
 
@@ -2752,6 +2864,12 @@ static int repair_unaligned_extent_recs(struct btrfs_trans_handle *trans,
 	struct unaligned_extent_rec_t *urec;
 	struct unaligned_extent_rec_t *tmp;
 
+	if (dry_run) {
+		printf("dry-run: skipping unaligned extent recs %llu\n",
+		       rec->ino);
+		return 0;
+	}
+
 	list_for_each_entry_safe(urec, tmp, &rec->unaligned_extent_recs, list) {
 
 		key.objectid = urec->owner;
@@ -2779,6 +2897,11 @@ static int repair_imode_original(struct btrfs_trans_handle *trans,
 	struct btrfs_key key;
 	int ret;
 	u32 imode;
+
+	if (dry_run) {
+		printf("dry-run, skipping imode fix\n");
+		return 0;
+	}
 
 	key.objectid = rec->ino;
 	key.type = BTRFS_INODE_ITEM_KEY;
@@ -2822,6 +2945,12 @@ static int repair_inode_gen_original(struct btrfs_trans_handle *trans,
 	struct btrfs_key key;
 	int ret;
 
+	if (dry_run) {
+		printf("dry-run: skipping inode generation fix %llu\n",
+		       rec->ino);
+		return 0;
+	}
+
 	key.objectid = rec->ino;
 	key.offset = 0;
 	key.type = BTRFS_INODE_ITEM_KEY;
@@ -2850,7 +2979,7 @@ static int repair_inode_gen_original(struct btrfs_trans_handle *trans,
 
 static int try_repair_inode(struct btrfs_root *root, struct inode_record *rec)
 {
-	struct btrfs_trans_handle *trans;
+	struct btrfs_trans_handle *trans = NULL;
 	struct btrfs_path path;
 	int ret = 0;
 
@@ -2880,9 +3009,11 @@ static int try_repair_inode(struct btrfs_root *root, struct inode_record *rec)
 	 * 1 for the new inode_ref of the file
 	 * 2 for lost+found dir's dir_index and dir_item for the file
 	 */
-	trans = btrfs_start_transaction(root, 7);
-	if (IS_ERR(trans))
-		return PTR_ERR(trans);
+	if (!dry_run) {
+		trans = btrfs_start_transaction(root, 7);
+		if (IS_ERR(trans))
+			return PTR_ERR(trans);
+	}
 
 	btrfs_init_path(&path);
 	if (!ret && rec->errors & I_ERR_MISMATCH_DIR_HASH)
@@ -2907,7 +3038,9 @@ static int try_repair_inode(struct btrfs_root *root, struct inode_record *rec)
 		ret = repair_unaligned_extent_recs(trans, root, &path, rec);
 	if (!ret && rec->errors & I_ERR_INVALID_GEN)
 		ret = repair_inode_gen_original(trans, root, &path, rec);
-	btrfs_commit_transaction(trans, root);
+
+	if (!dry_run)
+		btrfs_commit_transaction(trans, root);
 	btrfs_release_path(&path);
 	return ret;
 }
@@ -2985,7 +3118,7 @@ static int check_inode_recs(struct btrfs_root *root,
 	rec = get_inode_rec(inode_cache, root_dirid, 0);
 	BUG_ON(IS_ERR(rec));
 	if (rec) {
-		if (repair) {
+		if (repair || josef) {
 			ret = try_repair_inode(root, rec);
 			if (ret < 0)
 				error++;
@@ -3055,7 +3188,7 @@ static int check_inode_recs(struct btrfs_root *root,
 			rec->errors |= I_ERR_NO_INODE_ITEM;
 		if (rec->found_link != rec->nlink)
 			rec->errors |= I_ERR_LINK_COUNT_WRONG;
-		if (repair) {
+		if (repair || josef) {
 			ret = try_repair_inode(root, rec);
 			if (ret == 0 && can_free_inode_rec(rec)) {
 				free_inode_rec(rec);
@@ -9984,7 +10117,8 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 			GETOPT_VAL_INIT_EXTENT, GETOPT_VAL_CHECK_CSUM,
 			GETOPT_VAL_READONLY, GETOPT_VAL_CHUNK_TREE,
 			GETOPT_VAL_MODE, GETOPT_VAL_CLEAR_SPACE_CACHE,
-			GETOPT_VAL_FORCE };
+			GETOPT_VAL_FORCE, GETOPT_VAL_JOSEF,
+			GETOPT_VAL_DRYRUN };
 		static const struct option long_options[] = {
 			{ "super", required_argument, NULL, 's' },
 			{ "repair", no_argument, NULL, GETOPT_VAL_REPAIR },
@@ -10007,6 +10141,8 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 			{ "clear-space-cache", required_argument, NULL,
 				GETOPT_VAL_CLEAR_SPACE_CACHE},
 			{ "force", no_argument, NULL, GETOPT_VAL_FORCE },
+			{ "josef", no_argument, NULL, GETOPT_VAL_JOSEF },
+			{ "dry-run", no_argument, NULL, GETOPT_VAL_DRYRUN },
 			{ NULL, 0, NULL, 0}
 		};
 
@@ -10094,8 +10230,18 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 			case GETOPT_VAL_FORCE:
 				force = 1;
 				break;
+			case GETOPT_VAL_JOSEF:
+				josef = 1;
+				ctree_flags |= OPEN_CTREE_WRITES;
+				break;
+			case GETOPT_VAL_DRYRUN:
+				dry_run = 1;
+				break;
 		}
 	}
+
+	if (dry_run)
+		ctree_flags &= ~(OPEN_CTREE_WRITES);
 
 	if (check_argc_exact(argc - optind, 1))
 		usage(cmd);
