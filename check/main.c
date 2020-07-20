@@ -2570,6 +2570,10 @@ static int repair_inode_no_item(struct btrfs_trans_handle *trans,
 			}
 			delete_bad_things(trans, root, path, rec, backref);
 		}
+		if (!dry_run) {
+			rec->errors = 0;
+			return 0;
+		}
 	}
 	if (dry_run) {
 		printf("dry-run: skipping\n");
