@@ -1259,9 +1259,6 @@ int find_mount_root(const char *path, const char *data, u8 flag, char **mount_ro
 	int longest_matchlen = 0;
 	char *longest_match = NULL;
 	char *cmp_field = NULL;
-	bool found;
-
-	BUG_ON(flag != BTRFS_FIND_ROOT_PATH);
 
 	fd = open(path, O_RDONLY | O_NOATIME);
 	if (fd < 0)
@@ -1273,12 +1270,32 @@ int find_mount_root(const char *path, const char *data, u8 flag, char **mount_ro
 		return -errno;
 
 	while ((ent = getmntent(mnttab))) {
-		cmp_field = ent->mnt_dir;
+		bool found = false;
+
+		/* BTRFS_FIND_ROOT_PATH is the default behavior */
+		if (flag == BTRFS_FIND_ROOT_OPTS)
+			cmp_field = ent->mnt_opts;
+		else
+			cmp_field = ent->mnt_dir;
 
 		len = strlen(cmp_field);
 
-		found = strncmp(cmp_field, data, len) == 0;
-
+		if (flag == BTRFS_FIND_ROOT_OPTS) {
+			size_t dlen = strlen(data);
+			char *tmp_str = strstr(cmp_field, data);
+			/*
+			 * Make sure that we are dealing with the wanted string,
+			 * since strstr returns the start of the string found.
+			 * Compare the end string position from data with the
+			 * mount point found, and make sure that we have an
+			 * option separator or string end.
+			 */
+			if (tmp_str)
+				found = tmp_str[dlen] == ',' ||
+					tmp_str[dlen] == 0;
+		} else {
+			found = strncmp(cmp_field, data, len) == 0;
+		}
 		if (found) {
 			/* match found and use the latest match */
 			if (longest_matchlen <= len) {

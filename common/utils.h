@@ -65,7 +65,10 @@ enum exclusive_operation {
 
 enum btrfs_find_root_flags {
 	/* check mnt_dir of mntent */
-	BTRFS_FIND_ROOT_PATH = 0
+	BTRFS_FIND_ROOT_PATH = 0,
+
+	/* check mnt_opts of mntent */
+	BTRFS_FIND_ROOT_OPTS
 };
 
 void units_set_mode(unsigned *units, unsigned mode);
