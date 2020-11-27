@@ -63,6 +63,11 @@ enum exclusive_operation {
 	BTRFS_EXCLOP_UNKNOWN = -1,
 };
 
+enum btrfs_find_root_flags {
+	/* check mnt_dir of mntent */
+	BTRFS_FIND_ROOT_PATH = 0
+};
+
 void units_set_mode(unsigned *units, unsigned mode);
 void units_set_base(unsigned *units, unsigned base);
 
@@ -107,7 +112,8 @@ int csum_tree_block(struct btrfs_fs_info *root, struct extent_buffer *buf,
 int ask_user(const char *question);
 int lookup_path_rootid(int fd, u64 *rootid);
 int get_btrfs_mount(const char *dev, char *mp, size_t mp_size);
-int find_mount_root(const char *path, char **mount_root);
+int find_mount_root(const char *path, const char *data, u8 flag,
+		char **mount_root);
 int get_device_info(int fd, u64 devid,
 		struct btrfs_ioctl_dev_info_args *di_args);
 int get_df(int fd, struct btrfs_ioctl_space_args **sargs_ret);

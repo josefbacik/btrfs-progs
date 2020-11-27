@@ -1079,7 +1079,8 @@ static int do_receive(struct btrfs_receive *rctx, const char *tomnt,
 	if (realmnt[0]) {
 		rctx->root_path = realmnt;
 	} else {
-		ret = find_mount_root(dest_dir_full_path, &rctx->root_path);
+		ret = find_mount_root(dest_dir_full_path, dest_dir_full_path,
+				BTRFS_FIND_ROOT_PATH, &rctx->root_path);
 		if (ret < 0) {
 			errno = -ret;
 			error("failed to determine mount point for %s: %m",

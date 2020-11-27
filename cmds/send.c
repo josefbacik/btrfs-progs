@@ -329,7 +329,8 @@ static int init_root_path(struct btrfs_send *sctx, const char *subvol)
 	if (sctx->root_path)
 		goto out;
 
-	ret = find_mount_root(subvol, &sctx->root_path);
+	ret = find_mount_root(subvol, subvol, BTRFS_FIND_ROOT_PATH,
+				&sctx->root_path);
 	if (ret < 0) {
 		errno = -ret;
 		error("failed to determine mount point for %s: %m", subvol);
@@ -659,7 +660,8 @@ static int cmd_send(const struct cmd_struct *cmd, int argc, char **argv)
 			goto out;
 		}
 
-		ret = find_mount_root(subvol, &mount_root);
+		ret = find_mount_root(subvol, subvol, BTRFS_FIND_ROOT_PATH,
+					&mount_root);
 		if (ret < 0) {
 			errno = -ret;
 			error("find_mount_root failed on %s: %m", subvol);
