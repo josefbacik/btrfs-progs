@@ -765,8 +765,9 @@ static int copy_tree_blocks(struct btrfs_root *root, struct extent_buffer *eb,
 			bytenr = btrfs_disk_root_bytenr(eb, ri);
 			tmp = read_tree_block(fs_info, bytenr, 0);
 			if (!extent_buffer_uptodate(tmp)) {
-				error("unable to read log root block");
-				return -EIO;
+				error("unable to block, skipping");
+				free_extent_buffer(tmp);
+				continue;
 			}
 			ret = copy_tree_blocks(root, tmp, metadump, 0);
 			free_extent_buffer(tmp);
@@ -776,8 +777,9 @@ static int copy_tree_blocks(struct btrfs_root *root, struct extent_buffer *eb,
 			bytenr = btrfs_node_blockptr(eb, i);
 			tmp = read_tree_block(fs_info, bytenr, 0);
 			if (!extent_buffer_uptodate(tmp)) {
-				error("unable to read log root block");
-				return -EIO;
+				error("unable to read block, skipping");
+				free_extent_buffer(tmp);
+				continue;
 			}
 			ret = copy_tree_blocks(root, tmp, metadump, root_tree);
 			free_extent_buffer(tmp);
