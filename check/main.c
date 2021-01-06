@@ -10478,6 +10478,22 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 		if (ret)
 			goto close_out;
 	}
+
+	/*
+	 * The first thing we need to do is to validate that all blocks that are
+	 * referenced are valid.  This means they belong to their corresponding
+	 * roots, there's no csum mismatches, no structural problem with the
+	 * metadata.  Once these are validated and repaired then we can allow
+	 * the normal repair work to happen.
+	 */
+	if (repair) {
+		ret = validate_and_repair_tree_structure(gfs_info);
+		if (ret) {
+			err |= !!ret;
+			goto close_out;
+		}
+	}
+
 	if (!extent_buffer_uptodate(gfs_info->extent_root->node)) {
 		error("critical: extent_root, unable to check the filesystem");
 		ret = -EIO;
