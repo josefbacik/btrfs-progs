@@ -24,6 +24,8 @@
 #include <sys/stat.h>
 #include "kernel-shared/ctree.h"
 
+extern int repair; /* repair mode */
+
 #define FREE_SPACE_CACHE_INODE_MODE	(0100600)
 /*
  * Use for tree walk to walk through trees whose leaves/nodes can be shared

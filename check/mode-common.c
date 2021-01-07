@@ -24,6 +24,8 @@
 #include "repair.h"
 #include "check/mode-common.h"
 
+int repair = 0;
+
 /*
  * Check if the inode referenced by the given data reference uses the extent
  * at disk_bytenr as a non-prealloc extent.
