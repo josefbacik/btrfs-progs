@@ -30,7 +30,6 @@
 #include "kernel-shared/ulist.h"
 #include "common/rbtree-utils.h"
 #include "kernel-shared/transaction.h"
-#include "repair.h"
 
 #include "qgroup-verify.h"
 
@@ -1314,7 +1313,7 @@ static int report_qgroup_difference(struct qgroup_count *count, int verbose)
  * @all:	if set, all qgroup will be checked and reported even already
  * 		inconsistent or under rescan.
  */
-void report_qgroups(int all)
+void report_qgroups(int all, int repair)
 {
 	struct rb_node *node;
 	struct qgroup_count *c;

@@ -10468,7 +10468,7 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 		ret = qgroup_verify_all(gfs_info);
 		err |= !!ret;
 		if (ret >= 0)
-			report_qgroups(1);
+			report_qgroups(1, repair);
 		goto close_out;
 	}
 	if (subvolid) {
@@ -10716,7 +10716,7 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 			err |= !!qgroup_verify_ret;
 			goto out;
 		}
-		report_qgroups(0);
+		report_qgroups(0, repair);
 		ret = repair_qgroups(gfs_info, &qgroups_repaired, false);
 		if (ret) {
 			error("failed to repair quota groups");
