@@ -16,7 +16,7 @@
 
 #include <time.h>
 #include "kernel-shared/ctree.h"
-#include "repair.h"
+#include "check/common.h"
 #include "kernel-shared/transaction.h"
 #include "common/messages.h"
 #include "kernel-shared/disk-io.h"
@@ -4638,14 +4638,6 @@ static int walk_down_tree(struct btrfs_root *root, struct btrfs_path *path,
 			reada_walk_down(root, cur, path->slots[*level]);
 			next = read_tree_block(gfs_info, bytenr, ptr_gen);
 			if (!extent_buffer_uptodate(next)) {
-				struct btrfs_key node_key;
-
-				btrfs_node_key_to_cpu(path->nodes[*level],
-						      &node_key,
-						      path->slots[*level]);
-				btrfs_add_corrupt_extent_record(gfs_info,
-					&node_key, path->nodes[*level]->start,
-					gfs_info->nodesize, *level);
 				err |= -EIO;
 				break;
 			}

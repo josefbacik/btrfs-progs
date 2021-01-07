@@ -21,8 +21,8 @@
 #include "kernel-shared/transaction.h"
 #include "common/utils.h"
 #include "kernel-shared/disk-io.h"
-#include "repair.h"
 #include "check/mode-common.h"
+#include "check/common.h"
 
 int repair = 0;
 

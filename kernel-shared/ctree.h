@@ -1205,7 +1205,6 @@ struct btrfs_fs_info {
 				u64 root_objectid, u64 owner, u64 offset,
 				int refs_to_drop);
 	struct cache_tree *fsck_extent_cache;
-	struct cache_tree *corrupt_blocks;
 
 	/* Cached block sizes */
 	u32 nodesize;

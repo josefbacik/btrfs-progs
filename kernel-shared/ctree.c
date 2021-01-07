@@ -574,36 +574,22 @@ btrfs_check_node(struct btrfs_fs_info *fs_info,
 	struct btrfs_key cpukey;
 	struct btrfs_disk_key key;
 	u32 nritems = btrfs_header_nritems(buf);
-	enum btrfs_tree_block_status ret = BTRFS_TREE_BLOCK_INVALID_NRITEMS;
 
 	if (nritems == 0 || nritems > BTRFS_NODEPTRS_PER_BLOCK(fs_info))
-		goto fail;
+		return BTRFS_TREE_BLOCK_INVALID_NRITEMS;
 
-	ret = BTRFS_TREE_BLOCK_INVALID_PARENT_KEY;
 	if (parent_key && parent_key->type) {
 		btrfs_node_key(buf, &key, 0);
 		if (memcmp(parent_key, &key, sizeof(key)))
-			goto fail;
+			return BTRFS_TREE_BLOCK_INVALID_PARENT_KEY;
 	}
-	ret = BTRFS_TREE_BLOCK_BAD_KEY_ORDER;
 	for (i = 0; nritems > 1 && i < nritems - 2; i++) {
 		btrfs_node_key(buf, &key, i);
 		btrfs_node_key_to_cpu(buf, &cpukey, i + 1);
 		if (btrfs_comp_keys(&key, &cpukey) >= 0)
-			goto fail;
+			return BTRFS_TREE_BLOCK_BAD_KEY_ORDER;
 	}
 	return BTRFS_TREE_BLOCK_CLEAN;
-fail:
-	if (btrfs_header_owner(buf) == BTRFS_EXTENT_TREE_OBJECTID) {
-		if (parent_key)
-			btrfs_disk_key_to_cpu(&cpukey, parent_key);
-		else
-			btrfs_node_key_to_cpu(buf, &cpukey, 0);
-		btrfs_add_corrupt_extent_record(fs_info, &cpukey,
-						buf->start, buf->len,
-						btrfs_header_level(buf));
-	}
-	return ret;
 }
 
 enum btrfs_tree_block_status
@@ -614,26 +600,23 @@ btrfs_check_leaf(struct btrfs_fs_info *fs_info,
 	struct btrfs_key cpukey;
 	struct btrfs_disk_key key;
 	u32 nritems = btrfs_header_nritems(buf);
-	enum btrfs_tree_block_status ret = BTRFS_TREE_BLOCK_INVALID_NRITEMS;
 
 	if (nritems * sizeof(struct btrfs_item) > buf->len)  {
 		fprintf(stderr, "invalid number of items %llu\n",
 			(unsigned long long)buf->start);
-		goto fail;
+		return BTRFS_TREE_BLOCK_INVALID_NRITEMS;
 	}
 
 	if (btrfs_header_level(buf) != 0) {
-		ret = BTRFS_TREE_BLOCK_INVALID_LEVEL;
 		fprintf(stderr, "leaf is not a leaf %llu\n",
 		       (unsigned long long)btrfs_header_bytenr(buf));
-		goto fail;
+		return BTRFS_TREE_BLOCK_INVALID_LEVEL;
 	}
 	if (btrfs_leaf_free_space(buf) < 0) {
-		ret = BTRFS_TREE_BLOCK_INVALID_FREE_SPACE;
 		fprintf(stderr, "leaf free space incorrect %llu %d\n",
 			(unsigned long long)btrfs_header_bytenr(buf),
 			btrfs_leaf_free_space(buf));
-		goto fail;
+		return BTRFS_TREE_BLOCK_INVALID_FREE_SPACE;
 	}
 
 	if (nritems == 0)
@@ -642,34 +625,30 @@ btrfs_check_leaf(struct btrfs_fs_info *fs_info,
 	btrfs_item_key(buf, &key, 0);
 	if (parent_key && parent_key->type &&
 	    memcmp(parent_key, &key, sizeof(key))) {
-		ret = BTRFS_TREE_BLOCK_INVALID_PARENT_KEY;
 		fprintf(stderr, "leaf parent key incorrect %llu\n",
 		       (unsigned long long)btrfs_header_bytenr(buf));
-		goto fail;
+		return BTRFS_TREE_BLOCK_INVALID_PARENT_KEY;
 	}
 	for (i = 0; nritems > 1 && i < nritems - 1; i++) {
 		btrfs_item_key(buf, &key, i);
 		btrfs_item_key_to_cpu(buf, &cpukey, i + 1);
 		if (btrfs_comp_keys(&key, &cpukey) >= 0) {
-			ret = BTRFS_TREE_BLOCK_BAD_KEY_ORDER;
 			fprintf(stderr, "bad key ordering %d %d\n", i, i+1);
-			goto fail;
+			return BTRFS_TREE_BLOCK_BAD_KEY_ORDER;
 		}
 		if (btrfs_item_offset_nr(buf, i) !=
 			btrfs_item_end_nr(buf, i + 1)) {
-			ret = BTRFS_TREE_BLOCK_INVALID_OFFSETS;
 			fprintf(stderr, "incorrect offsets %u %u\n",
 				btrfs_item_offset_nr(buf, i),
 				btrfs_item_end_nr(buf, i + 1));
-			goto fail;
+			return BTRFS_TREE_BLOCK_INVALID_OFFSETS;
 		}
 		if (i == 0 && btrfs_item_end_nr(buf, i) !=
 		    BTRFS_LEAF_DATA_SIZE(fs_info)) {
-			ret = BTRFS_TREE_BLOCK_INVALID_OFFSETS;
 			fprintf(stderr, "bad item end %u wanted %u\n",
 				btrfs_item_end_nr(buf, i),
 				(unsigned)BTRFS_LEAF_DATA_SIZE(fs_info));
-			goto fail;
+			return BTRFS_TREE_BLOCK_INVALID_OFFSETS;
 		}
 	}
 
@@ -679,27 +658,15 @@ btrfs_check_leaf(struct btrfs_fs_info *fs_info,
 			btrfs_item_key(buf, &key, 0);
 			btrfs_print_key(&key);
 			fflush(stdout);
-			ret = BTRFS_TREE_BLOCK_INVALID_OFFSETS;
 			fprintf(stderr, "slot end outside of leaf %llu > %llu\n",
 				(unsigned long long)btrfs_item_end_nr(buf, i),
 				(unsigned long long)BTRFS_LEAF_DATA_SIZE(
 					fs_info));
-			goto fail;
+			return BTRFS_TREE_BLOCK_INVALID_OFFSETS;
 		}
 	}
 
 	return BTRFS_TREE_BLOCK_CLEAN;
-fail:
-	if (btrfs_header_owner(buf) == BTRFS_EXTENT_TREE_OBJECTID) {
-		if (parent_key)
-			btrfs_disk_key_to_cpu(&cpukey, parent_key);
-		else
-			btrfs_item_key_to_cpu(buf, &cpukey, 0);
-
-		btrfs_add_corrupt_extent_record(fs_info, &cpukey,
-						buf->start, buf->len, 0);
-	}
-	return ret;
 }
 
 static int noinline check_block(struct btrfs_fs_info *fs_info,

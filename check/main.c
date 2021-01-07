@@ -28,7 +28,6 @@
 #include <time.h>
 #include "kernel-shared/ctree.h"
 #include "kernel-shared/volumes.h"
-#include "repair.h"
 #include "kernel-shared/disk-io.h"
 #include "kernel-shared/print-tree.h"
 #include "common/task-utils.h"
@@ -1812,16 +1811,6 @@ static int walk_down_tree(struct btrfs_root *root, struct btrfs_path *path,
 			reada_walk_down(root, cur, path->slots[*level]);
 			next = read_tree_block(gfs_info, bytenr, ptr_gen);
 			if (!extent_buffer_uptodate(next)) {
-				struct btrfs_key node_key;
-
-				btrfs_node_key_to_cpu(path->nodes[*level],
-						      &node_key,
-						      path->slots[*level]);
-				btrfs_add_corrupt_extent_record(gfs_info,
-						&node_key,
-						path->nodes[*level]->start,
-						gfs_info->nodesize,
-						*level);
 				err = -EIO;
 				goto out;
 			}
@@ -3434,103 +3423,6 @@ static int process_root_ref(struct extent_buffer *eb, int slot,
 	return 0;
 }
 
-static void free_corrupt_block(struct cache_extent *cache)
-{
-	struct btrfs_corrupt_block *corrupt;
-
-	corrupt = container_of(cache, struct btrfs_corrupt_block, cache);
-	free(corrupt);
-}
-
-FREE_EXTENT_CACHE_BASED_TREE(corrupt_blocks, free_corrupt_block);
-
-/*
- * Repair the btree of the given root.
- *
- * The fix is to remove the node key in corrupt_blocks cache_tree.
- * and rebalance the tree.
- * After the fix, the btree should be writeable.
- */
-static int repair_btree(struct btrfs_root *root,
-			struct cache_tree *corrupt_blocks)
-{
-	struct btrfs_trans_handle *trans;
-	struct btrfs_path path;
-	struct btrfs_corrupt_block *corrupt;
-	struct cache_extent *cache;
-	struct btrfs_key key;
-	u64 offset;
-	int level;
-	int ret = 0;
-
-	if (cache_tree_empty(corrupt_blocks))
-		return 0;
-
-	trans = btrfs_start_transaction(root, 1);
-	if (IS_ERR(trans)) {
-		ret = PTR_ERR(trans);
-		errno = -ret;
-		fprintf(stderr, "Error starting transaction: %m\n");
-		return ret;
-	}
-	btrfs_init_path(&path);
-	cache = first_cache_extent(corrupt_blocks);
-	while (cache) {
-		corrupt = container_of(cache, struct btrfs_corrupt_block,
-				       cache);
-		level = corrupt->level;
-		path.lowest_level = level;
-		key.objectid = corrupt->key.objectid;
-		key.type = corrupt->key.type;
-		key.offset = corrupt->key.offset;
-
-		/*
-		 * Here we don't want to do any tree balance, since it may
-		 * cause a balance with corrupted brother leaf/node,
-		 * so ins_len set to 0 here.
-		 * Balance will be done after all corrupt node/leaf is deleted.
-		 */
-		ret = btrfs_search_slot(trans, root, &key, &path, 0, 1);
-		if (ret < 0)
-			goto out;
-		offset = btrfs_node_blockptr(path.nodes[level],
-					     path.slots[level]);
-
-		/* Remove the ptr */
-		ret = btrfs_del_ptr(root, &path, level, path.slots[level]);
-		if (ret < 0)
-			goto out;
-		/*
-		 * Remove the corresponding extent
-		 * return value is not concerned.
-		 */
-		btrfs_release_path(&path);
-		ret = btrfs_free_extent(trans, root, offset,
-				gfs_info->nodesize, 0,
-				root->root_key.objectid, level - 1, 0);
-		cache = next_cache_extent(cache);
-	}
-
-	/* Balance the btree using btrfs_search_slot() */
-	cache = first_cache_extent(corrupt_blocks);
-	while (cache) {
-		corrupt = container_of(cache, struct btrfs_corrupt_block,
-				       cache);
-		memcpy(&key, &corrupt->key, sizeof(key));
-		ret = btrfs_search_slot(trans, root, &key, &path, -1, 1);
-		if (ret < 0)
-			goto out;
-		/* return will always >0 since it won't find the item */
-		ret = 0;
-		btrfs_release_path(&path);
-		cache = next_cache_extent(cache);
-	}
-out:
-	btrfs_commit_transaction(trans, root);
-	btrfs_release_path(&path);
-	return ret;
-}
-
 static int check_fs_root(struct btrfs_root *root,
 			 struct cache_tree *root_cache,
 			 struct walk_control *wc)
@@ -3545,7 +3437,6 @@ static int check_fs_root(struct btrfs_root *root,
 	struct shared_node root_node;
 	struct root_record *rec;
 	struct btrfs_root_item *root_item = &root->root_item;
-	struct cache_tree corrupt_blocks;
 	enum btrfs_tree_block_status status;
 	struct node_refs nrefs;
 	struct unaligned_extent_rec_t *urec;
@@ -3568,14 +3459,6 @@ static int check_fs_root(struct btrfs_root *root,
 			}
 		}
 	}
-	/*
-	 * Reuse the corrupt_block cache tree to record corrupted tree block
-	 *
-	 * Unlike the usage in extent tree check, here we do it in a per
-	 * fs/subvol tree base.
-	 */
-	cache_tree_init(&corrupt_blocks);
-	gfs_info->corrupt_blocks = &corrupt_blocks;
 
 	if (root->root_key.objectid != BTRFS_TREE_RELOC_OBJECTID) {
 		rec = get_root_rec(root_cache, root->root_key.objectid);
@@ -3669,37 +3552,6 @@ static int check_fs_root(struct btrfs_root *root,
 skip_walking:
 	btrfs_release_path(&path);
 
-	if (!cache_tree_empty(&corrupt_blocks)) {
-		struct cache_extent *cache;
-		struct btrfs_corrupt_block *corrupt;
-
-		printf("The following tree block(s) is corrupted in tree %llu:\n",
-		       root->root_key.objectid);
-		cache = first_cache_extent(&corrupt_blocks);
-		while (cache) {
-			corrupt = container_of(cache,
-					       struct btrfs_corrupt_block,
-					       cache);
-			printf("\ttree block bytenr: %llu, level: %d, node key: (%llu, %u, %llu)\n",
-			       cache->start, corrupt->level,
-			       corrupt->key.objectid, corrupt->key.type,
-			       corrupt->key.offset);
-			cache = next_cache_extent(cache);
-		}
-		if (repair) {
-			printf("Try to repair the btree for root %llu\n",
-			       root->root_key.objectid);
-			ret = repair_btree(root, &corrupt_blocks);
-			if (ret < 0) {
-				errno = -ret;
-				fprintf(stderr, "Failed to repair btree: %m\n");
-			}
-			if (!ret)
-				printf("Btree for root %llu is fixed\n",
-				       root->root_key.objectid);
-		}
-	}
-
 	err = merge_root_recs(root, &root_node.root_cache, root_cache);
 	if (err < 0)
 		ret = err;
@@ -3714,8 +3566,6 @@ skip_walking:
 	if (!ret)
 		ret = err;
 
-	free_corrupt_blocks_tree(&corrupt_blocks);
-	gfs_info->corrupt_blocks = NULL;
 	if (!ret && generation_err)
 		ret = -1;
 	return ret;
@@ -4129,45 +3979,6 @@ static int check_owner_ref(struct btrfs_root *root,
 
 	btrfs_release_path(&path);
 	return found ? 0 : 1;
-}
-
-static int is_extent_tree_record(struct extent_record *rec)
-{
-	struct extent_backref *node, *tmp;
-	struct tree_backref *back;
-	int is_extent = 0;
-
-	rbtree_postorder_for_each_entry_safe(node, tmp,
-					     &rec->backref_tree, node) {
-		if (node->is_data)
-			return 0;
-		back = to_tree_backref(node);
-		if (node->full_backref)
-			return 0;
-		if (back->root == BTRFS_EXTENT_TREE_OBJECTID)
-			is_extent = 1;
-	}
-	return is_extent;
-}
-
-
-static int record_bad_block_io(struct cache_tree *extent_cache,
-			       u64 start, u64 len)
-{
-	struct extent_record *rec;
-	struct cache_extent *cache;
-	struct btrfs_key key;
-
-	cache = lookup_cache_extent(extent_cache, start, len);
-	if (!cache)
-		return 0;
-
-	rec = container_of(cache, struct extent_record, cache);
-	if (!is_extent_tree_record(rec))
-		return 0;
-
-	btrfs_disk_key_to_cpu(&key, &rec->parent_key);
-	return btrfs_add_corrupt_extent_record(gfs_info, &key, start, len, 0);
 }
 
 static int swap_values(struct btrfs_root *root, struct btrfs_path *path,
@@ -6252,10 +6063,8 @@ static int run_next_block(struct btrfs_root *root,
 
 	/* fixme, get the real parent transid */
 	buf = read_tree_block(gfs_info, bytenr, gen);
-	if (!extent_buffer_uptodate(buf)) {
-		record_bad_block_io(extent_cache, bytenr, size);
+	if (!extent_buffer_uptodate(buf))
 		goto out;
-	}
 
 	nritems = btrfs_header_nritems(buf);
 
@@ -7621,7 +7430,6 @@ static int fixup_extent_refs(struct cache_tree *extent_cache,
 	struct btrfs_trans_handle *trans = NULL;
 	int ret;
 	struct btrfs_path path;
-	struct cache_extent *cache;
 	struct extent_backref *back, *tmp;
 	int allocated = 0;
 	u64 flags = 0;
@@ -7659,14 +7467,6 @@ static int fixup_extent_refs(struct cache_tree *extent_cache,
 
 	if (ret < 0)
 		goto out;
-
-	/* was this block corrupt?  If so, don't add references to it */
-	cache = lookup_cache_extent(gfs_info->corrupt_blocks,
-				    rec->start, rec->max_size);
-	if (cache) {
-		ret = 0;
-		goto out;
-	}
 
 	/* step three, recreate all the refs we did find */
 	rbtree_postorder_for_each_entry_safe(back, tmp,
@@ -7770,97 +7570,6 @@ retry:
 }
 
 /* right now we only prune from the extent allocation tree */
-static int prune_one_block(struct btrfs_trans_handle *trans,
-			   struct btrfs_corrupt_block *corrupt)
-{
-	int ret;
-	struct btrfs_path path;
-	struct extent_buffer *eb;
-	u64 found;
-	int slot;
-	int nritems;
-	int level = corrupt->level + 1;
-
-	btrfs_init_path(&path);
-again:
-	/* we want to stop at the parent to our busted block */
-	path.lowest_level = level;
-
-	ret = btrfs_search_slot(trans, gfs_info->extent_root,
-				&corrupt->key, &path, -1, 1);
-
-	if (ret < 0)
-		goto out;
-
-	eb = path.nodes[level];
-	if (!eb) {
-		ret = -ENOENT;
-		goto out;
-	}
-
-	/*
-	 * hopefully the search gave us the block we want to prune,
-	 * lets try that first
-	 */
-	slot = path.slots[level];
-	found =  btrfs_node_blockptr(eb, slot);
-	if (found == corrupt->cache.start)
-		goto del_ptr;
-
-	nritems = btrfs_header_nritems(eb);
-
-	/* the search failed, lets scan this node and hope we find it */
-	for (slot = 0; slot < nritems; slot++) {
-		found =  btrfs_node_blockptr(eb, slot);
-		if (found == corrupt->cache.start)
-			goto del_ptr;
-	}
-	/*
-	 * We couldn't find the bad block.
-	 * TODO: search all the nodes for pointers to this block
-	 */
-	if (eb == gfs_info->extent_root->node) {
-		ret = -ENOENT;
-		goto out;
-	} else {
-		level++;
-		btrfs_release_path(&path);
-		goto again;
-	}
-
-del_ptr:
-	printk("deleting pointer to block %llu\n", corrupt->cache.start);
-	ret = btrfs_del_ptr(gfs_info->extent_root, &path, level, slot);
-
-out:
-	btrfs_release_path(&path);
-	return ret;
-}
-
-static int prune_corrupt_blocks(void)
-{
-	struct btrfs_trans_handle *trans = NULL;
-	struct cache_extent *cache;
-	struct btrfs_corrupt_block *corrupt;
-
-	while (1) {
-		cache = search_cache_extent(gfs_info->corrupt_blocks, 0);
-		if (!cache)
-			break;
-		if (!trans) {
-			trans = btrfs_start_transaction(gfs_info->extent_root, 1);
-			if (IS_ERR(trans))
-				return PTR_ERR(trans);
-		}
-		corrupt = container_of(cache, struct btrfs_corrupt_block, cache);
-		prune_one_block(trans, corrupt);
-		remove_cache_extent(gfs_info->corrupt_blocks, cache);
-	}
-	if (trans)
-		return btrfs_commit_transaction(trans, gfs_info->extent_root);
-	return 0;
-}
-
 static int record_unaligned_extent_rec(struct extent_record *rec)
 {
 
@@ -7985,9 +7694,6 @@ static int check_extent_refs(struct btrfs_root *root,
 	int ret = 0;
 	int had_dups = 0;
 	int err = 0;
-
-	if (repair)
-		prune_corrupt_blocks();
 
 	reset_cached_block_groups();
 
@@ -8743,7 +8449,6 @@ static int check_chunks_and_extents(void)
 	struct cache_tree pending;
 	struct cache_tree reada;
 	struct cache_tree nodes;
-	struct cache_tree corrupt_blocks;
 	int ret, err = 0;
 	struct block_info *bits;
 	int bits_nr;
@@ -8764,14 +8469,12 @@ static int check_chunks_and_extents(void)
 	cache_tree_init(&pending);
 	cache_tree_init(&nodes);
 	cache_tree_init(&reada);
-	cache_tree_init(&corrupt_blocks);
 	INIT_LIST_HEAD(&dropping_trees);
 	INIT_LIST_HEAD(&normal_trees);
 
 	if (repair) {
 		gfs_info->fsck_extent_cache = &extent_cache;
 		gfs_info->free_extent_hook = free_extent_hook;
-		gfs_info->corrupt_blocks = &corrupt_blocks;
 	}
 
 	bits_nr = 1024;
@@ -8850,10 +8553,8 @@ again:
 
 out:
 	if (repair) {
-		free_corrupt_blocks_tree(gfs_info->corrupt_blocks);
 		gfs_info->fsck_extent_cache = NULL;
 		gfs_info->free_extent_hook = NULL;
-		gfs_info->corrupt_blocks = NULL;
 	}
 	free(bits);
 	free_chunk_cache_tree(&chunk_cache);
@@ -8868,7 +8569,6 @@ out:
 	free_root_item_list(&dropping_trees);
 	return ret;
 loop:
-	free_corrupt_blocks_tree(gfs_info->corrupt_blocks);
 	free_extent_cache_tree(&seen);
 	free_extent_cache_tree(&pending);
 	free_extent_cache_tree(&reada);
