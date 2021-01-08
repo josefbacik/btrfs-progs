@@ -2464,14 +2464,16 @@ static int find_normal_file_extent(struct btrfs_root *root, u64 ino)
 		ret = 0;
 		goto out;
 	}
-	if (ret && path.slots[0] >= btrfs_header_nritems(path.nodes[0])) {
-		ret = btrfs_next_leaf(root, &path);
-		if (ret) {
-			ret = 0;
-			goto out;
-		}
-	}
 	while (1) {
+		if (path.slots[0] >= btrfs_header_nritems(path.nodes[0])) {
+			ret = btrfs_next_leaf(root, &path);
+			if (ret) {
+				if (ret > 0)
+					ret = 0;
+				break;
+			}
+		}
+
 		btrfs_item_key_to_cpu(path.nodes[0], &found_key,
 				      path.slots[0]);
 		if (found_key.objectid != ino ||
@@ -2484,6 +2486,7 @@ static int find_normal_file_extent(struct btrfs_root *root, u64 ino)
 			ret = 1;
 			goto out;
 		}
+		path.slots[0]++;
 	}
 out:
 	btrfs_release_path(&path);
