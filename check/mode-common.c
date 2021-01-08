@@ -635,6 +635,7 @@ static int traverse_tree_blocks(struct extent_buffer *eb, int tree_root)
 				continue;
 			ri = btrfs_item_ptr(eb, i, struct btrfs_root_item);
 			bytenr = btrfs_disk_root_bytenr(eb, ri);
+			end = bytenr + gfs_info->nodesize;
 
 			/*
 			 * If at any point we start needing the real root we
@@ -645,7 +646,9 @@ static int traverse_tree_blocks(struct extent_buffer *eb, int tree_root)
 			tmp = read_tree_block(gfs_info, bytenr, 0);
 			if (!extent_buffer_uptodate(tmp)) {
 				fprintf(stderr, "Error reading root block\n");
-				return -EIO;
+				set_extent_dirty(tree, bytenr, end - 1);
+				free_extent_buffer(tmp);
+				continue;
 			}
 			ret = traverse_tree_blocks(tmp, 0);
 			free_extent_buffer(tmp);
@@ -653,18 +656,21 @@ static int traverse_tree_blocks(struct extent_buffer *eb, int tree_root)
 				return ret;
 		} else {
 			bytenr = btrfs_node_blockptr(eb, i);
+			end = bytenr + gfs_info->nodesize;
 
 			/* If we aren't the tree root don't read the block */
 			if (level == 1 && !tree_root) {
-				set_extent_dirty(tree, bytenr,
-						 gfs_info->nodesize);
+				set_extent_dirty(tree, bytenr, end - 1);
 				continue;
 			}
 
 			tmp = read_tree_block(gfs_info, bytenr, 0);
 			if (!extent_buffer_uptodate(tmp)) {
 				fprintf(stderr, "Error reading tree block\n");
-				return -EIO;
+				set_extent_dirty(tree, bytenr,
+						 gfs_info->nodesize);
+				free_extent_buffer(tmp);
+				continue;
 			}
 			ret = traverse_tree_blocks(tmp, tree_root);
 			free_extent_buffer(tmp);
