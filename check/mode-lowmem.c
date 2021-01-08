@@ -27,8 +27,6 @@
 #include "check/mode-common.h"
 #include "check/mode-lowmem.h"
 
-static u64 last_allocated_chunk;
-
 static int calc_extent_flag(struct btrfs_root *root, struct extent_buffer *eb,
 			    u64 *flags_ret)
 {
@@ -235,308 +233,6 @@ static int update_nodes_refs(struct btrfs_root *root, u64 bytenr,
 }
 
 /*
- * Mark all extents unfree in the block group. And set @block_group->cached
- * according to @cache.
- */
-static int modify_block_group_cache(struct btrfs_block_group *block_group, int cache)
-{
-	struct extent_io_tree *free_space_cache = &gfs_info->free_space_cache;
-	u64 start = block_group->start;
-	u64 end = start + block_group->length;
-
-	if (cache && !block_group->cached) {
-		block_group->cached = 1;
-		clear_extent_dirty(free_space_cache, start, end - 1);
-	}
-
-	if (!cache && block_group->cached) {
-		block_group->cached = 0;
-		clear_extent_dirty(free_space_cache, start, end - 1);
-	}
-	return 0;
-}
-
-/*
- * Modify block groups which have @flags unfree in free space cache.
- *
- * @cache: if 0, clear block groups cache state;
- *         not 0, mark blocks groups cached.
- */
-static int modify_block_groups_cache(u64 flags, int cache)
-{
-	struct btrfs_root *root = gfs_info->extent_root;
-	struct btrfs_key key;
-	struct btrfs_path path;
-	struct btrfs_block_group *bg_cache;
-	struct btrfs_block_group_item *bi;
-	struct btrfs_block_group_item bg_item;
-	struct extent_buffer *eb;
-	int slot;
-	int ret;
-
-	key.objectid = 0;
-	key.type = BTRFS_BLOCK_GROUP_ITEM_KEY;
-	key.offset = 0;
-
-	btrfs_init_path(&path);
-	ret = btrfs_search_slot(NULL, root, &key, &path, 0, 0);
-	if (ret < 0) {
-		errno = -ret;
-		error("fail to search block groups due to %m");
-		goto out;
-	}
-
-	while (1) {
-		eb = path.nodes[0];
-		slot = path.slots[0];
-		btrfs_item_key_to_cpu(eb, &key, slot);
-		bg_cache = btrfs_lookup_block_group(gfs_info, key.objectid);
-		if (!bg_cache) {
-			ret = -ENOENT;
-			goto out;
-		}
-
-		bi = btrfs_item_ptr(eb, slot, struct btrfs_block_group_item);
-		read_extent_buffer(eb, &bg_item, (unsigned long)bi,
-				   sizeof(bg_item));
-		if (btrfs_stack_block_group_flags(&bg_item) & flags)
-			modify_block_group_cache(bg_cache, cache);
-
-		ret = btrfs_next_item(root, &path);
-		if (ret > 0) {
-			ret = 0;
-			goto out;
-		}
-		if (ret < 0)
-			goto out;
-	}
-
-out:
-	btrfs_release_path(&path);
-	return ret;
-}
-
-static int mark_block_groups_full(u64 flags)
-{
-	return modify_block_groups_cache(flags, 1);
-}
-
-static int clear_block_groups_full(u64 flags)
-{
-	return modify_block_groups_cache(flags, 0);
-}
-
-static int create_chunk_and_block_group(u64 flags, u64 *start, u64 *nbytes)
-{
-	struct btrfs_trans_handle *trans;
-	struct btrfs_root *root = gfs_info->extent_root;
-	int ret;
-
-	if ((flags & BTRFS_BLOCK_GROUP_TYPE_MASK) == 0)
-		return -EINVAL;
-
-	trans = btrfs_start_transaction(root, 1);
-	if (IS_ERR(trans)) {
-		ret = PTR_ERR(trans);
-		errno = -ret;
-		error("error starting transaction %m");
-		return ret;
-	}
-	ret = btrfs_alloc_chunk(trans, gfs_info, start, nbytes, flags);
-	if (ret) {
-		errno = -ret;
-		error("fail to allocate new chunk %m");
-		goto out;
-	}
-	ret = btrfs_make_block_group(trans, gfs_info, 0, flags, *start,
-				     *nbytes);
-	if (ret) {
-		errno = -ret;
-		error("fail to make block group for chunk %llu %llu %m",
-		      *start, *nbytes);
-		goto out;
-	}
-out:
-	btrfs_commit_transaction(trans, root);
-	return ret;
-}
-
-static int force_cow_in_new_chunk(u64 *start_ret)
-{
-	struct btrfs_block_group *bg;
-	u64 start;
-	u64 nbytes;
-	u64 alloc_profile;
-	u64 flags;
-	int ret;
-
-	alloc_profile = (gfs_info->avail_metadata_alloc_bits &
-			 gfs_info->metadata_alloc_profile);
-	flags = BTRFS_BLOCK_GROUP_METADATA | alloc_profile;
-	if (btrfs_fs_incompat(gfs_info, MIXED_GROUPS))
-		flags |= BTRFS_BLOCK_GROUP_DATA;
-
-	ret = create_chunk_and_block_group(flags, &start, &nbytes);
-	if (ret)
-		goto err;
-	printf("Created new chunk [%llu %llu]\n", start, nbytes);
-
-	flags = BTRFS_BLOCK_GROUP_METADATA;
-	/* Mark all metadata block groups cached and full in free space*/
-	ret = mark_block_groups_full(flags);
-	if (ret)
-		goto clear_bgs_full;
-
-	bg = btrfs_lookup_block_group(gfs_info, start);
-	if (!bg) {
-		ret = -ENOENT;
-		error("fail to look up block group %llu %llu", start, nbytes);
-		goto clear_bgs_full;
-	}
-
-	/* Clear block group cache just allocated */
-	ret = modify_block_group_cache(bg, 0);
-	if (ret)
-		goto clear_bgs_full;
-	if (start_ret)
-		*start_ret = start;
-	return 0;
-
-clear_bgs_full:
-	clear_block_groups_full(flags);
-err:
-	return ret;
-}
-
-/*
- * Returns 0 means not almost full.
- * Returns >0 means almost full.
- * Returns <0 means fatal error.
- */
-static int is_chunk_almost_full(u64 start)
-{
-	struct btrfs_path path;
-	struct btrfs_key key;
-	struct btrfs_root *root = gfs_info->extent_root;
-	struct btrfs_block_group_item *bi;
-	struct btrfs_block_group_item bg_item;
-	struct extent_buffer *eb;
-	u64 used;
-	u64 total;
-	u64 min_free;
-	int ret;
-	int slot;
-
-	key.objectid = start;
-	key.type = BTRFS_BLOCK_GROUP_ITEM_KEY;
-	key.offset = (u64)-1;
-
-	btrfs_init_path(&path);
-	ret = btrfs_search_slot(NULL, root, &key, &path, 0, 0);
-	if (!ret)
-		ret = -EIO;
-	if (ret < 0)
-		goto out;
-	ret = btrfs_previous_item(root, &path, start,
-				  BTRFS_BLOCK_GROUP_ITEM_KEY);
-	if (ret) {
-		error("failed to find block group %llu", start);
-		ret = -ENOENT;
-		goto out;
-	}
-
-	eb = path.nodes[0];
-	slot = path.slots[0];
-	btrfs_item_key_to_cpu(eb, &key, slot);
-	if (key.objectid != start) {
-		ret = -ENOENT;
-		goto out;
-	}
-
-	total = key.offset;
-	bi = btrfs_item_ptr(eb, slot, struct btrfs_block_group_item);
-	read_extent_buffer(eb, &bg_item, (unsigned long)bi, sizeof(bg_item));
-	used = btrfs_stack_block_group_used(&bg_item);
-
-	/*
-	 * if the free space in the chunk is less than %10 of total,
-	 * or not not enough for CoW once, we think the chunk is almost full.
-	 */
-	min_free = max_t(u64, (BTRFS_MAX_LEVEL + 1) * gfs_info->nodesize,
-			 div_factor(total, 1));
-
-	if ((total - used) > min_free)
-		ret = 0;
-	else
-		ret = 1;
-out:
-	btrfs_release_path(&path);
-	return ret;
-}
-
-/*
- * Returns <0 for error.
- * Returns 0 for success.
- */
-static int try_to_force_cow_in_new_chunk(u64 old_start, u64 *new_start)
-{
-	int ret;
-
-	if (old_start) {
-		ret = is_chunk_almost_full(old_start);
-		if (ret <= 0)
-			return ret;
-	}
-	ret = force_cow_in_new_chunk(new_start);
-	return ret;
-}
-
-static int avoid_extents_overwrite(void)
-{
-	int ret;
-	int mixed = btrfs_fs_incompat(gfs_info, MIXED_GROUPS);
-
-	if (gfs_info->excluded_extents)
-		return 0;
-
-	if (last_allocated_chunk != (u64)-1) {
-		ret = try_to_force_cow_in_new_chunk(last_allocated_chunk,
-				&last_allocated_chunk);
-		if (!ret)
-			goto out;
-		/*
-		 * If failed, do not try to allocate chunk again in
-		 * next call.
-		 * If there is no space left to allocate, try to exclude all
-		 * metadata blocks. Mixed filesystem is unsupported.
-		 */
-		last_allocated_chunk = (u64)-1;
-		if (ret != -ENOSPC || mixed)
-			goto out;
-	}
-
-	printf(
-	"Try to exclude all metadata blocks and extents, it may be slow\n");
-	ret = exclude_metadata_blocks();
-out:
-	if (ret) {
-		errno = -ret;
-		error("failed to avoid extents overwrite %m");
-	}
-	return ret;
-}
-
-static int end_avoid_extents_overwrite(void)
-{
-	int ret = 0;
-
-	cleanup_excluded_extents();
-	if (last_allocated_chunk)
-		ret = clear_block_groups_full(BTRFS_BLOCK_GROUP_METADATA);
-	return ret;
-}
-
-/*
  * Delete the item @path point to. A wrapper of btrfs_del_item().
  *
  * If deleted successfully, @path will point to the previous item of the
@@ -548,9 +244,6 @@ static int delete_item(struct btrfs_root *root, struct btrfs_path *path)
 	struct btrfs_trans_handle *trans;
 	int ret = 0;
 
-	ret = avoid_extents_overwrite();
-	if (ret)
-		return ret;
 	trans = btrfs_start_transaction(root, 1);
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
@@ -669,9 +362,6 @@ static int repair_tree_block_ref(struct btrfs_root *root,
 	if (nrefs->full_backref[level] != 0)
 		flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
 
-	ret = avoid_extents_overwrite();
-	if (ret)
-		goto out;
 	trans = btrfs_start_transaction(extent_root, 1);
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
@@ -3271,9 +2961,6 @@ static int repair_extent_data_item(struct btrfs_root *root,
 	}
 	need_insert = ret;
 
-	ret = avoid_extents_overwrite();
-	if (ret)
-		goto out;
 	trans = btrfs_start_transaction(root, 1);
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
@@ -4083,10 +3770,6 @@ static int repair_extent_item(struct btrfs_root *root, struct btrfs_path *path,
 
 	btrfs_item_key_to_cpu(path->nodes[0], &old_key, path->slots[0]);
 
-	ret = avoid_extents_overwrite();
-	if (ret)
-		return ret;
-
 	trans = btrfs_start_transaction(extent_root, 1);
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
@@ -4156,9 +3839,6 @@ static int repair_extent_item_generation(struct btrfs_path *path)
 	       key.type == BTRFS_EXTENT_ITEM_KEY);
 
 	get_extent_item_generation(key.objectid, &new_gen);
-	ret = avoid_extents_overwrite();
-	if (ret)
-		return ret;
 	btrfs_release_path(path);
 	trans = btrfs_start_transaction(extent_root, 1);
 	if (IS_ERR(trans)) {
@@ -4705,10 +4385,6 @@ static int repair_chunk_item(struct btrfs_root *chunk_root,
 	/* now repair only adds block group */
 	if ((err & REFERENCER_MISSING) == 0)
 		return err;
-
-	ret = avoid_extents_overwrite();
-	if (ret)
-		return ret;
 
 	trans = btrfs_start_transaction(extent_root, 1);
 	if (IS_ERR(trans)) {
@@ -5535,11 +5211,7 @@ next:
 out:
 
 	if (repair) {
-		ret = end_avoid_extents_overwrite();
-		if (ret < 0)
-			ret = FATAL_ERROR;
 		err |= ret;
-
 		reset_cached_block_groups();
 		/* update block accounting */
 		ret = repair_block_accounting();

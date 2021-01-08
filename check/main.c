@@ -7986,33 +7986,8 @@ static int check_extent_refs(struct btrfs_root *root,
 	int had_dups = 0;
 	int err = 0;
 
-	if (repair) {
-		/*
-		 * if we're doing a repair, we have to make sure
-		 * we don't allocate from the problem extents.
-		 * In the worst case, this will be all the
-		 * extents in the FS
-		 */
-		cache = search_cache_extent(extent_cache, 0);
-		while (cache) {
-			rec = container_of(cache, struct extent_record, cache);
-			set_extent_dirty(gfs_info->excluded_extents,
-					 rec->start,
-					 rec->start + rec->max_size - 1);
-			cache = next_cache_extent(cache);
-		}
-
-		/* pin down all the corrupted blocks too */
-		cache = search_cache_extent(gfs_info->corrupt_blocks, 0);
-		while (cache) {
-			set_extent_dirty(gfs_info->excluded_extents,
-					 cache->start,
-					 cache->start + cache->size - 1);
-			cache = next_cache_extent(cache);
-		}
+	if (repair)
 		prune_corrupt_blocks();
-		reset_cached_block_groups();
-	}
 
 	reset_cached_block_groups();
 
@@ -8159,10 +8134,6 @@ next:
 		err = cur_err;
 		remove_cache_extent(extent_cache, cache);
 		free_all_extent_backrefs(rec);
-		if (!init_extent_tree && repair && (!cur_err || fix))
-			clear_extent_dirty(gfs_info->excluded_extents,
-					   rec->start,
-					   rec->start + rec->max_size - 1);
 		free(rec);
 	}
 repair_abort:
@@ -8772,7 +8743,6 @@ static int check_chunks_and_extents(void)
 	struct cache_tree pending;
 	struct cache_tree reada;
 	struct cache_tree nodes;
-	struct extent_io_tree excluded_extents;
 	struct cache_tree corrupt_blocks;
 	int ret, err = 0;
 	struct block_info *bits;
@@ -8795,12 +8765,10 @@ static int check_chunks_and_extents(void)
 	cache_tree_init(&nodes);
 	cache_tree_init(&reada);
 	cache_tree_init(&corrupt_blocks);
-	extent_io_tree_init(&excluded_extents);
 	INIT_LIST_HEAD(&dropping_trees);
 	INIT_LIST_HEAD(&normal_trees);
 
 	if (repair) {
-		gfs_info->excluded_extents = &excluded_extents;
 		gfs_info->fsck_extent_cache = &extent_cache;
 		gfs_info->free_extent_hook = free_extent_hook;
 		gfs_info->corrupt_blocks = &corrupt_blocks;
@@ -8883,11 +8851,9 @@ again:
 out:
 	if (repair) {
 		free_corrupt_blocks_tree(gfs_info->corrupt_blocks);
-		extent_io_tree_cleanup(&excluded_extents);
 		gfs_info->fsck_extent_cache = NULL;
 		gfs_info->free_extent_hook = NULL;
 		gfs_info->corrupt_blocks = NULL;
-		gfs_info->excluded_extents = NULL;
 	}
 	free(bits);
 	free_chunk_cache_tree(&chunk_cache);
@@ -8914,7 +8880,6 @@ loop:
 	free_extent_record_cache(&extent_cache);
 	free_root_item_list(&normal_trees);
 	free_root_item_list(&dropping_trees);
-	extent_io_tree_cleanup(&excluded_extents);
 	goto again;
 }
 
@@ -9182,30 +9147,6 @@ static int reinit_extent_tree(struct btrfs_trans_handle *trans, bool pin)
 			"developer you want to do this so they can add this "
 			"functionality.\n");
 		return -EINVAL;
-	}
-
-	/*
-	 * first we need to walk all of the trees except the extent tree and pin
-	 * down/exclude the bytes that are in use so we don't overwrite any
-	 * existing metadata.
-	 * If pinned, unpin will be done in the end of transaction.
-	 * If excluded, cleanup will be done in check_chunks_and_extents_lowmem.
-	 */
-again:
-	if (pin) {
-		ret = pin_metadata_blocks();
-		if (ret) {
-			fprintf(stderr, "error pinning down used bytes\n");
-			return ret;
-		}
-	} else {
-		ret = exclude_metadata_blocks();
-		if (ret) {
-			fprintf(stderr, "error excluding used bytes\n");
-			printf("try to pin down used bytes\n");
-			pin = true;
-			goto again;
-		}
 	}
 
 	/*
@@ -10431,6 +10372,15 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 		goto close_out;
 	}
 
+	if (repair) {
+		printf("Generating exclude tree so that we do not overwrite existing blocks, this may take some time\n");
+		ret = exclude_metadata_blocks();
+		if (ret) {
+			err |= !!ret;
+			goto close_out;
+		}
+	}
+
 	if (clear_space_cache) {
 		ret = do_clear_free_space_cache(clear_space_cache);
 		err |= !!ret;
@@ -10758,6 +10708,7 @@ out:
 	free_qgroup_counts();
 	free_root_recs_tree(&root_cache);
 close_out:
+	cleanup_excluded_extents();
 	close_ctree(root);
 err_out:
 	if (ctx.progress_enabled)

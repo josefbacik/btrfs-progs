@@ -600,12 +600,12 @@ void reset_cached_block_groups()
 	}
 }
 
-static int traverse_tree_blocks(struct extent_buffer *eb, int tree_root, int pin)
+static int traverse_tree_blocks(struct extent_buffer *eb, int tree_root)
 {
 	struct extent_buffer *tmp;
 	struct btrfs_root_item *ri;
 	struct btrfs_key key;
-	struct extent_io_tree *tree;
+	struct extent_io_tree *tree = gfs_info->excluded_extents;
 	u64 bytenr;
 	int level = btrfs_header_level(eb);
 	int nritems;
@@ -613,38 +613,25 @@ static int traverse_tree_blocks(struct extent_buffer *eb, int tree_root, int pin
 	int i;
 	u64 end = eb->start + eb->len;
 
-	if (pin)
-		tree = &gfs_info->pinned_extents;
-	else
-		tree = gfs_info->excluded_extents;
 	/*
-	 * If we have pinned/excluded this block before, don't do it again.
-	 * This can not only avoid forever loop with broken filesystem
-	 * but also give us some speedups.
+	 * If we have excluded this block before, don't do it again.  This can
+	 * not only avoid forever loop with broken filesystem but also give us
+	 * some speedups.
 	 */
 	if (test_range_bit(tree, eb->start, end - 1, EXTENT_DIRTY, 0))
 		return 0;
 
-	if (pin)
-		btrfs_pin_extent(gfs_info, eb->start, eb->len);
-	else
-		set_extent_dirty(tree, eb->start, end - 1);
+	set_extent_dirty(tree, eb->start, end - 1);
 
 	nritems = btrfs_header_nritems(eb);
 	for (i = 0; i < nritems; i++) {
 		if (level == 0) {
-			bool is_extent_root;
 			btrfs_item_key_to_cpu(eb, &key, i);
 			if (key.type != BTRFS_ROOT_ITEM_KEY)
 				continue;
 			/* Skip the extent root and reloc roots */
 			if (key.objectid == BTRFS_TREE_RELOC_OBJECTID ||
 			    key.objectid == BTRFS_DATA_RELOC_TREE_OBJECTID)
-				continue;
-			is_extent_root =
-				key.objectid == BTRFS_EXTENT_TREE_OBJECTID;
-			/* If pin, skip the extent root */
-			if (pin && is_extent_root)
 				continue;
 			ri = btrfs_item_ptr(eb, i, struct btrfs_root_item);
 			bytenr = btrfs_disk_root_bytenr(eb, ri);
@@ -660,7 +647,7 @@ static int traverse_tree_blocks(struct extent_buffer *eb, int tree_root, int pin
 				fprintf(stderr, "Error reading root block\n");
 				return -EIO;
 			}
-			ret = traverse_tree_blocks(tmp, 0, pin);
+			ret = traverse_tree_blocks(tmp, 0);
 			free_extent_buffer(tmp);
 			if (ret)
 				return ret;
@@ -669,12 +656,8 @@ static int traverse_tree_blocks(struct extent_buffer *eb, int tree_root, int pin
 
 			/* If we aren't the tree root don't read the block */
 			if (level == 1 && !tree_root) {
-				if (pin)
-					btrfs_pin_extent(gfs_info, bytenr,
-							 gfs_info->nodesize);
-				else
-					set_extent_dirty(tree, bytenr,
-							 gfs_info->nodesize);
+				set_extent_dirty(tree, bytenr,
+						 gfs_info->nodesize);
 				continue;
 			}
 
@@ -683,7 +666,7 @@ static int traverse_tree_blocks(struct extent_buffer *eb, int tree_root, int pin
 				fprintf(stderr, "Error reading tree block\n");
 				return -EIO;
 			}
-			ret = traverse_tree_blocks(tmp, tree_root, pin);
+			ret = traverse_tree_blocks(tmp, tree_root);
 			free_extent_buffer(tmp);
 			if (ret)
 				return ret;
@@ -691,27 +674,6 @@ static int traverse_tree_blocks(struct extent_buffer *eb, int tree_root, int pin
 	}
 
 	return 0;
-}
-
-static int pin_down_tree_blocks(struct extent_buffer *eb, int tree_root)
-{
-	return traverse_tree_blocks(eb, tree_root, 1);
-}
-
-int pin_metadata_blocks(void)
-{
-	int ret;
-
-	ret = pin_down_tree_blocks(gfs_info->chunk_root->node, 0);
-	if (ret)
-		return ret;
-
-	return pin_down_tree_blocks(gfs_info->tree_root->node, 1);
-}
-
-static int exclude_tree_blocks(struct extent_buffer *eb, int tree_root)
-{
-	return traverse_tree_blocks(eb, tree_root, 0);
 }
 
 int exclude_metadata_blocks(void)
@@ -725,10 +687,10 @@ int exclude_metadata_blocks(void)
 	extent_io_tree_init(excluded_extents);
 	gfs_info->excluded_extents = excluded_extents;
 
-	ret = exclude_tree_blocks(gfs_info->chunk_root->node, 0);
+	ret = traverse_tree_blocks(gfs_info->chunk_root->node, 0);
 	if (ret)
 		return ret;
-	return exclude_tree_blocks(gfs_info->tree_root->node, 1);
+	return traverse_tree_blocks(gfs_info->tree_root->node, 1);
 }
 
 void cleanup_excluded_extents(void)
