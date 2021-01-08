@@ -10098,12 +10098,14 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 	 * will make us fail to load log tree when mounting.
 	 */
 	if (repair && btrfs_super_log_root(gfs_info->super_copy)) {
+		/*
 		ret = ask_user("repair mode will force to clear out log tree, are you sure?");
 		if (!ret) {
 			ret = 1;
 			err |= !!ret;
 			goto close_out;
 		}
+		*/
 		ret = zero_log_tree(root);
 		err |= !!ret;
 		if (ret) {
@@ -10180,14 +10182,21 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 	}
 
 	/*
-	 * The first thing we need to do is to validate that all blocks that are
-	 * referenced are valid.  This means they belong to their corresponding
-	 * roots, there's no csum mismatches, no structural problem with the
-	 * metadata.  Once these are validated and repaired then we can allow
-	 * the normal repair work to happen.
+	 * The first thing we need to do is validate that the extent and chunk
+	 * roots to make sure they point at valid blocks, otherwise we'll puke
+	 * while trying to repair root items if we need to look up bytenr's that
+	 * are in broken blocks.
 	 */
 	if (repair) {
-		ret = validate_and_repair_tree_structure(gfs_info);
+		ret = validate_and_repair_root(gfs_info,
+					       gfs_info->chunk_root);
+		if (ret) {
+			err |= !!ret;
+			goto close_out;
+		}
+
+		ret = validate_and_repair_root(gfs_info,
+					       gfs_info->extent_root);
 		if (ret) {
 			err |= !!ret;
 			goto close_out;
@@ -10244,6 +10253,18 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 		}
 	} else {
 		fprintf(stderr, "[1/7] checking root items... skipped\n");
+	}
+
+	/*
+	 * Now we can process the rest of the roots and fixup any keys before
+	 * doing the normal checks.
+	 */
+	if (repair) {
+		ret = validate_and_repair_root(gfs_info, gfs_info->tree_root);
+		if (ret) {
+			err |= !!ret;
+			goto close_out;
+		}
 	}
 
 	if (!ctx.progress_enabled) {

@@ -176,5 +176,6 @@ int check_chunks(struct cache_tree *chunk_cache,
 		 struct device_extent_tree *dev_extent_cache,
 		 struct list_head *good, struct list_head *bad,
 		 struct list_head *rebuild, int silent);
-int validate_and_repair_tree_structure(struct btrfs_fs_info *fs_info);
+int validate_and_repair_root(struct btrfs_fs_info *fs_info,
+			     struct btrfs_root *root);
 #endif
