@@ -278,7 +278,7 @@ progs_box_static_objects = $(filter-out %/main.static.o, $(progs_box_all_static_
 
 # Programs to install.
 progs_install = btrfs mkfs.btrfs btrfs-map-logical btrfs-image \
-		btrfs-find-root btrfstune btrfs-select-super
+		btrfs-find-root btrfstune btrfs-select-super btrfs-neal-magic
 
 # Programs to build.
 progs_build = $(progs_install) btrfsck btrfs-corrupt-block
