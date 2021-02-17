@@ -17,10 +17,11 @@ int main(int argc, char **argv)
 	ssize_t ret;
 	int fd;
 	u64 gen, bytenr;
+	int level;
 	u16 csum_type;
 
-	if (argc < 4) {
-		printf("usage: btrfs-neal-magic <dev> <bytenr> <gen>\n");
+	if (argc < 5) {
+		printf("usage: btrfs-neal-magic <dev> <bytenr> <gen> <level>\n");
 		return -1;
 	}
 
@@ -34,6 +35,12 @@ int main(int argc, char **argv)
 	gen = strtoll(argv[3], NULL, 0);
 	if (errno) {
 		printf("Invalid number for gen\n");
+		return -1;
+	}
+
+	level = (int)strtol(argv[4], NULL, 0);
+	if (errno) {
+		printf("Invalide number for level\n");
 		return -1;
 	}
 
@@ -53,6 +60,7 @@ int main(int argc, char **argv)
 	csum_type = btrfs_super_csum_type(sb);
 	btrfs_set_super_generation(sb, gen);
 	btrfs_set_super_root(sb, bytenr);
+	btrfs_set_super_root_level(sb, level);
 	btrfs_csum_data(csum_type, (u8 *)sb + BTRFS_CSUM_SIZE, result,
 			BTRFS_SUPER_INFO_SIZE - BTRFS_CSUM_SIZE);
 	memcpy(&sb->csum[0], result, BTRFS_CSUM_SIZE);
