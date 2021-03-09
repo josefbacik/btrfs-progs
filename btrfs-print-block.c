@@ -8,17 +8,16 @@
 #include "kerncompat.h"
 #include "kernel-shared/ctree.h"
 #include "kernel-shared/disk-io.h"
+#include "kernel-shared/volumes.h"
 #include "kernel-shared/print-tree.h"
 
 #define BLOCKSIZE 16384
 
-static void broken_print_tree(struct extent_buffer *eb, int fd)
+static void broken_print_tree(struct btrfs_fs_info *fs_info,
+			      struct extent_buffer *eb)
 {
 	struct extent_buffer *tmp;
-	ssize_t ret;
 	int i, nr = btrfs_header_nritems(eb);
-
-	tmp = alloc_dummy_extent_buffer(NULL, 0, BLOCKSIZE);
 
 	btrfs_print_tree(eb, false, 0);
 	if (btrfs_header_level(eb) == 0)
@@ -27,22 +26,21 @@ static void broken_print_tree(struct extent_buffer *eb, int fd)
 	for (i = 0; i < nr; i++) {
 		u64 blocknr = btrfs_node_blockptr(eb, i);
 
-		ret = pread(fd, tmp->data, BLOCKSIZE, blocknr);
-		if (ret != BLOCKSIZE) {
+		tmp = read_tree_block(fs_info, blocknr, 0);
+		if (!tmp || IS_ERR(tmp)) {
 			printf("Failed to read bytenr %llu\n", blocknr);
 			return;
 		}
-		broken_print_tree(eb, fd);
+		broken_print_tree(fs_info, tmp);
+		free_extent_buffer(tmp);
 	}
-	free_extent_buffer(tmp);
 }
 
 int main(int argc, char **argv)
 {
+	struct btrfs_fs_info *fs_info;
 	struct extent_buffer *eb;
-	ssize_t ret;
 	u64 bytenr;
-	int fd;
 
 	if (argc < 3) {
 		printf("usage: btrfs-pring-block <dev> <bytenr>\n");
@@ -56,20 +54,23 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	fd = open(argv[1], O_RDONLY);
-	if (fd < 0) {
-		printf("Couldn't open device\n");
+	fs_info = open_ctree_fs_info(argv[1], 0, 0, 0,
+				     OPEN_CTREE_CHUNK_ROOT_ONLY |
+				     OPEN_CTREE_IGNORE_CHUNK_TREE_ERROR);
+	if (!fs_info) {
+		printf("open ctree failed\n");
 		return -1;
 	}
 
-	eb = alloc_dummy_extent_buffer(NULL, bytenr, BLOCKSIZE);
-	ret = pread(fd, eb->data, BLOCKSIZE, bytenr);
-	if (ret != BLOCKSIZE) {
-		printf("Failed to read\n");
+	eb = read_tree_block(fs_info, bytenr, 0);
+	if (!eb || IS_ERR(eb)) {
+		printf("Failed to do initial read\n");
 		return -1;
 	}
-	broken_print_tree(eb, fd);
-	close(fd);
+	broken_print_tree(fs_info, eb);
 	free_extent_buffer(eb);
+
+	close_ctree_fs_info(fs_info);
+	btrfs_close_all_devices();
 	return 0;
 }
