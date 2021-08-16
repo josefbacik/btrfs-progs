@@ -258,6 +258,11 @@ static int recow_roots(struct btrfs_trans_handle *trans,
 		if (ret)
 			return ret;
 	}
+	if (btrfs_fs_incompat(info, EXTENT_TREE_V2)) {
+		ret = __recow_root(trans, info->block_group_root);
+		if (ret)
+			return ret;
+	}
 	return 0;
 }
 
@@ -566,7 +571,7 @@ static int cleanup_temp_chunks(struct btrfs_fs_info *fs_info,
 {
 	struct btrfs_trans_handle *trans = NULL;
 	struct btrfs_block_group_item *bgi;
-	struct btrfs_root *root = fs_info->extent_root;
+	struct btrfs_root *root = btrfs_get_block_group_root(fs_info);
 	struct btrfs_key key;
 	struct btrfs_key found_key;
 	struct btrfs_path path;
