@@ -471,7 +471,7 @@ static int corrupt_block_group(struct btrfs_root *root, u64 bg, char *field)
 	u64 orig, bogus;
 	int ret = 0;
 
-	root = root->fs_info->extent_root;
+	root = btrfs_get_block_group_root(root->fs_info);
 
 	corrupt_field = convert_block_group_field(field);
 	if (corrupt_field == BTRFS_BLOCK_GROUP_ITEM_BAD) {
