@@ -9492,9 +9492,9 @@ static int populate_csum(struct btrfs_trans_handle *trans,
 }
 
 static int fill_csum_tree_from_one_fs_root(struct btrfs_trans_handle *trans,
-				      struct btrfs_root *csum_root,
-				      struct btrfs_root *cur_root)
+					   struct btrfs_root *cur_root)
 {
+	struct btrfs_root *csum_root = gfs_info->csum_root;
 	struct btrfs_path path;
 	struct btrfs_key key;
 	struct extent_buffer *node;
@@ -9555,8 +9555,7 @@ out:
 	return ret;
 }
 
-static int fill_csum_tree_from_fs(struct btrfs_trans_handle *trans,
-				  struct btrfs_root *csum_root)
+static int fill_csum_tree_from_fs(struct btrfs_trans_handle *trans)
 {
 	struct btrfs_path path;
 	struct btrfs_root *tree_root = gfs_info->tree_root;
@@ -9596,8 +9595,7 @@ static int fill_csum_tree_from_fs(struct btrfs_trans_handle *trans,
 				key.objectid);
 			goto out;
 		}
-		ret = fill_csum_tree_from_one_fs_root(trans, csum_root,
-				cur_root);
+		ret = fill_csum_tree_from_one_fs_root(trans, cur_root);
 		if (ret < 0)
 			goto out;
 next:
@@ -9615,10 +9613,10 @@ out:
 	return ret;
 }
 
-static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans,
-				      struct btrfs_root *csum_root)
+static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans)
 {
 	struct btrfs_root *extent_root = gfs_info->extent_root;
+	struct btrfs_root *csum_root = gfs_info->csum_root;
 	struct btrfs_path path;
 	struct btrfs_extent_item *ei;
 	struct extent_buffer *leaf;
@@ -9688,13 +9686,12 @@ static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans,
  * will use fs/subvol trees to init the csum tree.
  */
 static int fill_csum_tree(struct btrfs_trans_handle *trans,
-			  struct btrfs_root *csum_root,
 			  int search_fs_tree)
 {
 	if (search_fs_tree)
-		return fill_csum_tree_from_fs(trans, csum_root);
+		return fill_csum_tree_from_fs(trans);
 	else
-		return fill_csum_tree_from_extent(trans, csum_root);
+		return fill_csum_tree_from_extent(trans);
 }
 
 static void free_roots_info_cache(void)
@@ -10697,8 +10694,7 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 				goto close_out;
 			}
 
-			ret = fill_csum_tree(trans, gfs_info->csum_root,
-					     init_extent_tree);
+			ret = fill_csum_tree(trans, init_extent_tree);
 			err |= !!ret;
 			if (ret) {
 				error("checksum tree refilling failed: %d", ret);
