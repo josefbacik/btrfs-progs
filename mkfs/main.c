@@ -233,7 +233,7 @@ static int recow_roots(struct btrfs_trans_handle *trans,
 		       struct btrfs_root *root)
 {
 	struct btrfs_fs_info *info = root->fs_info;
-	struct btrfs_root *csum_root = btrfs_csum_root(info, 0);
+	struct btrfs_root *csum_root;
 	int ret;
 
 	ret = __recow_root(trans, info->fs_root);
@@ -251,9 +251,6 @@ static int recow_roots(struct btrfs_trans_handle *trans,
 	ret = __recow_root(trans, info->dev_root);
 	if (ret)
 		return ret;
-	ret = __recow_root(trans, csum_root);
-	if (ret)
-		return ret;
 	if (info->free_space_root) {
 		ret = __recow_root(trans, info->free_space_root);
 		if (ret)
@@ -261,6 +258,12 @@ static int recow_roots(struct btrfs_trans_handle *trans,
 	}
 	if (btrfs_fs_incompat(info, EXTENT_TREE_V2)) {
 		ret = __recow_root(trans, info->block_group_root);
+		if (ret)
+			return ret;
+	}
+	for (csum_root = btrfs_first_csum_root(info); csum_root;
+	     csum_root = btrfs_next_csum_root(csum_root)) {
+		ret = __recow_root(trans, csum_root);
 		if (ret)
 			return ret;
 	}
