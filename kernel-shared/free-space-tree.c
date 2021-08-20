@@ -1450,6 +1450,7 @@ int btrfs_create_free_space_tree(struct btrfs_fs_info *fs_info)
 	struct btrfs_root *tree_root = fs_info->tree_root;
 	struct btrfs_root *free_space_root;
 	struct btrfs_block_group *block_group;
+	struct btrfs_key key;
 	u64 start = BTRFS_SUPER_INFO_OFFSET + BTRFS_SUPER_INFO_SIZE;
 	int ret;
 
@@ -1457,8 +1458,11 @@ int btrfs_create_free_space_tree(struct btrfs_fs_info *fs_info)
 	if (IS_ERR(trans))
 		return PTR_ERR(trans);
 
-	free_space_root = btrfs_create_tree(trans, fs_info,
-					    BTRFS_FREE_SPACE_TREE_OBJECTID);
+	key.objectid = BTRFS_FREE_SPACE_TREE_OBJECTID;
+	key.type = BTRFS_ROOT_ITEM_KEY;
+	key.offset = 0;
+
+	free_space_root = btrfs_create_tree(trans, fs_info, &key);
 	if (IS_ERR(free_space_root)) {
 		ret = PTR_ERR(free_space_root);
 		goto abort;
