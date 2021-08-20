@@ -753,7 +753,42 @@ int btrfs_fs_roots_compare_roots(struct rb_node *node1, struct rb_node *node2)
 struct btrfs_root *btrfs_csum_root(struct btrfs_fs_info *fs_info,
 				   u64 bytenr)
 {
-	return fs_info->_csum_root;
+	struct btrfs_block_group *cache;
+
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		return fs_info->_csum_root;
+	cache = btrfs_lookup_block_group(fs_info, bytenr);
+	ASSERT(cache);
+	return cache->csum_root;
+}
+
+struct btrfs_root *btrfs_first_csum_root(struct btrfs_fs_info *fs_info)
+{
+	struct btrfs_block_group *cache;
+
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		return fs_info->_csum_root;
+	cache = btrfs_lookup_first_block_group(fs_info,
+					BTRFS_BLOCK_RESERVED_1M_FOR_SUPER);
+	return cache->csum_root;
+}
+
+struct btrfs_root *btrfs_next_csum_root(struct btrfs_root *root)
+{
+	struct btrfs_fs_info *fs_info = root->fs_info;
+	struct btrfs_block_group *cache;
+	struct rb_node *n;
+
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		return NULL;
+
+	cache = btrfs_lookup_block_group(fs_info, root->root_key.offset);
+	for (n = rb_next(&cache->cache_node); n; n = rb_next(n)) {
+		cache = rb_entry(n, struct btrfs_block_group, cache_node);
+		if (cache->csum_root)
+			return cache->csum_root;
+	}
+	return NULL;
 }
 
 struct btrfs_root *btrfs_read_fs_root(struct btrfs_fs_info *fs_info,
@@ -1029,11 +1064,18 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 	}
 	fs_info->dev_root->track_dirty = 1;
 
-	ret = setup_root_or_create_block(fs_info, flags, fs_info->_csum_root,
-					 BTRFS_CSUM_TREE_OBJECTID, "csum");
-	if (ret)
-		return ret;
-	fs_info->_csum_root->track_dirty = 1;
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2)) {
+		ret = setup_root_or_create_block(fs_info, flags,
+						 fs_info->_csum_root,
+						 BTRFS_CSUM_TREE_OBJECTID,
+						 "csum");
+		if (ret)
+			return ret;
+		fs_info->_csum_root->track_dirty = 1;
+	} else {
+		free(fs_info->_csum_root);
+		fs_info->_csum_root = NULL;
+	}
 
 	ret = find_and_setup_root(root, fs_info, BTRFS_UUID_TREE_OBJECTID,
 				  fs_info->uuid_root);
@@ -1887,18 +1929,21 @@ static void backup_super_roots(struct btrfs_fs_info *info)
 	btrfs_set_backup_dev_root_level(root_backup,
 				       btrfs_header_level(info->dev_root->node));
 
-	btrfs_set_backup_csum_root(root_backup, info->_csum_root->node->start);
-	btrfs_set_backup_csum_root_gen(root_backup,
-			       btrfs_header_generation(info->_csum_root->node));
-	btrfs_set_backup_csum_root_level(root_backup,
-			       btrfs_header_level(info->_csum_root->node));
-
 	btrfs_set_backup_total_bytes(root_backup,
 			     btrfs_super_total_bytes(info->super_copy));
 	btrfs_set_backup_bytes_used(root_backup,
 			     btrfs_super_bytes_used(info->super_copy));
 	btrfs_set_backup_num_devices(root_backup,
 			     btrfs_super_num_devices(info->super_copy));
+
+	if (!info->_csum_root)
+		return;
+
+	btrfs_set_backup_csum_root(root_backup, info->_csum_root->node->start);
+	btrfs_set_backup_csum_root_gen(root_backup,
+			       btrfs_header_generation(info->_csum_root->node));
+	btrfs_set_backup_csum_root_level(root_backup,
+			       btrfs_header_level(info->_csum_root->node));
 };
 
 int write_all_supers(struct btrfs_fs_info *fs_info)
