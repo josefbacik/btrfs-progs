@@ -108,6 +108,12 @@ static const struct btrfs_feature mkfs_features[] = {
 		NULL, 0,
 		"support zoned devices" },
 #endif
+	{ "extent-tree-v2", BTRFS_FEATURE_INCOMPAT_EXTENT_TREE_V2,
+		"extent-tree-v2",
+		VERSION_TO_STRING2(5,15),
+		NULL, 0,
+		NULL, 0,
+		"new extent tree format" },
 	/* Keep this one last */
 	{ "list-all", BTRFS_FEATURE_LIST_ALL, NULL }
 };
