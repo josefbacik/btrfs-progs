@@ -603,11 +603,13 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 				     cfg->blocks[MKFS_FS_TREE]);
 	if (ret)
 		goto out;
-	/* finally create the csum root */
-	ret = btrfs_write_empty_tree(fd, cfg, buf, BTRFS_CSUM_TREE_OBJECTID,
-				     cfg->blocks[MKFS_CSUM_TREE]);
-	if (ret)
-		goto out;
+
+	if (!extent_tree_v2) {
+		ret = btrfs_write_empty_tree(fd, cfg, buf, BTRFS_CSUM_TREE_OBJECTID,
+					     cfg->blocks[MKFS_CSUM_TREE]);
+		if (ret)
+			goto out;
+	}
 
 	if (free_space_tree) {
 		ret = create_free_space_tree(fd, cfg, buf, system_group_offset,
