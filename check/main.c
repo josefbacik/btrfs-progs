@@ -5985,7 +5985,6 @@ static int check_csums(struct btrfs_root *root)
 	unsigned long leaf_offset;
 	bool verify_csum = !!check_data_csum;
 
-	root = btrfs_csum_root(gfs_info, 0);
 	if (!extent_buffer_uptodate(root->node)) {
 		fprintf(stderr, "No valid csum tree found\n");
 		return -ENOENT;
@@ -10687,15 +10686,19 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 
 		if (init_csum_tree) {
 			printf("Reinitialize checksum tree\n");
-			ret = btrfs_fsck_reinit_root(trans,
-						btrfs_csum_root(gfs_info, 0));
-			if (ret) {
-				error("checksum tree initialization failed: %d",
-						ret);
-				ret = -EIO;
-				err |= !!ret;
-				goto close_out;
+
+			for (root = btrfs_first_csum_root(gfs_info); root;
+			     root = btrfs_next_csum_root(root)) {
+				ret = btrfs_fsck_reinit_root(trans, root);
+				if (ret) {
+					error("checksum tree initialization failed for %llu: %d",
+					      root->root_key.offset, ret);
+					ret = -EIO;
+					err |= !!ret;
+					goto close_out;
+				}
 			}
+			root = gfs_info->fs_root;
 
 			ret = fill_csum_tree(trans, init_extent_tree);
 			err |= !!ret;
@@ -10720,13 +10723,17 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 		goto close_out;
 	}
 
-	root = btrfs_csum_root(gfs_info, 0);
-	if (!extent_buffer_uptodate(root->node)) {
-		error("critical: csum_root, unable to check the filesystem");
-		ret = -EIO;
-		err |= !!ret;
-		goto close_out;
+	for (root = btrfs_first_csum_root(gfs_info); root;
+	     root = btrfs_next_csum_root(root)) {
+		if (!extent_buffer_uptodate(root->node)) {
+			error("critical: csum_root %llu, unable to check the filesystem",
+			      root->root_key.offset);
+			ret = -EIO;
+			err |= !!ret;
+			goto close_out;
+		}
 	}
+	root = gfs_info->fs_root;
 
 	if (!init_extent_tree) {
 		if (!ctx.progress_enabled) {
@@ -10832,15 +10839,20 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 		task_start(ctx.info, &ctx.start_time, &ctx.item_count);
 	}
 
-	ret = check_csums(root);
+	for (root = btrfs_first_csum_root(gfs_info); root;
+	     root = btrfs_next_csum_root(root)) {
+		ret = check_csums(root);
+		/*
+		 * Data csum error is not fatal, and it may indicate more
+		 * serious corruption, continue checking.
+		 */
+		if (ret) {
+			error("errors found in csum tree %llu\n",
+			      root->root_key.offset);
+			err |= !!ret;
+		}
+	}
 	task_stop(ctx.info);
-	/*
-	 * Data csum error is not fatal, and it may indicate more serious
-	 * corruption, continue checking.
-	 */
-	if (ret)
-		error("errors found in csum tree");
-	err |= !!ret;
 
 	/* For low memory mode, check_fs_roots_v2 handles root refs */
         if (check_mode != CHECK_MODE_LOWMEM) {
