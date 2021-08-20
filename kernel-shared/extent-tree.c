@@ -2582,6 +2582,11 @@ int btrfs_free_block_groups(struct btrfs_fs_info *info)
 			btrfs_remove_free_space_cache(cache);
 			kfree(cache->free_space_ctl);
 		}
+		if (cache->csum_root) {
+			free_extent_buffer(cache->csum_root->node);
+			free_extent_buffer(cache->csum_root->commit_root);
+			kfree(cache->csum_root);
+		}
 		kfree(cache);
 	}
 
@@ -2730,6 +2735,34 @@ static int read_one_block_group(struct btrfs_fs_info *fs_info,
 	return 0;
 }
 
+static int read_block_group_roots(struct btrfs_fs_info *fs_info)
+{
+	struct btrfs_root *root;
+	struct btrfs_block_group *cache;
+	struct rb_node *n;
+	struct btrfs_key key;
+
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		return 0;
+
+	for (n = rb_first(&fs_info->block_group_cache_tree); n;
+	     n = rb_next(n)) {
+		cache = rb_entry(n, struct btrfs_block_group, cache_node);
+
+		if (!(cache->flags & BTRFS_BLOCK_GROUP_DATA))
+			continue;
+
+		key.objectid = BTRFS_CSUM_TREE_OBJECTID;
+		key.type = BTRFS_ROOT_ITEM_KEY;
+		key.offset = cache->start;
+
+		root = btrfs_read_fs_root_no_cache(fs_info, &key);
+		if (IS_ERR(root))
+			return PTR_ERR(root);
+		cache->csum_root = root;
+	}
+}
+
 int btrfs_read_block_groups(struct btrfs_fs_info *fs_info)
 {
 	struct btrfs_path path;
@@ -2747,7 +2780,7 @@ int btrfs_read_block_groups(struct btrfs_fs_info *fs_info)
 		ret = find_first_block_group(root, &path, &key);
 		if (ret > 0) {
 			ret = 0;
-			goto error;
+			break;
 		}
 		if (ret != 0) {
 			goto error;
@@ -2765,7 +2798,7 @@ int btrfs_read_block_groups(struct btrfs_fs_info *fs_info)
 		key.offset = 0;
 		btrfs_release_path(&path);
 	}
-	ret = 0;
+	ret = read_block_group_roots(fs_info);
 error:
 	btrfs_release_path(&path);
 	return ret;
@@ -2806,6 +2839,30 @@ btrfs_add_block_group(struct btrfs_fs_info *fs_info, u64 bytes_used, u64 type,
 	return cache;
 }
 
+static int add_block_group_roots(struct btrfs_trans_handle *trans,
+				 struct btrfs_block_group *cache)
+{
+	struct btrfs_fs_info *fs_info = trans->fs_info;
+	struct btrfs_root *tree_root = fs_info->tree_root;
+	struct btrfs_root *root;
+	struct btrfs_key key;
+
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		return 0;
+	if (!(cache->flags & BTRFS_BLOCK_GROUP_DATA))
+		return 0;
+
+	key.objectid = BTRFS_CSUM_TREE_OBJECTID;
+	key.type = BTRFS_ROOT_ITEM_KEY;
+	key.offset = cache->start;
+
+	root = btrfs_create_tree(trans, fs_info, &key);
+	if (IS_ERR(root))
+		return PTR_ERR(root);
+	cache->csum_root = root;
+	return 0;
+}
+
 int btrfs_make_block_group(struct btrfs_trans_handle *trans,
 			   struct btrfs_fs_info *fs_info, u64 bytes_used,
 			   u64 type, u64 chunk_offset, u64 size)
@@ -2828,9 +2885,11 @@ int btrfs_make_block_group(struct btrfs_trans_handle *trans,
 	ret = btrfs_insert_item(trans, root, &key, &bgi, sizeof(bgi));
 	BUG_ON(ret);
 
-	add_block_group_free_space(trans, cache);
+	ret = add_block_group_roots(trans, cache);
+	if (!ret)
+		add_block_group_free_space(trans, cache);
 
-	return 0;
+	return ret;
 }
 
 static int insert_block_group_item(struct btrfs_trans_handle *trans,
@@ -3212,6 +3271,24 @@ out:
 	return ret;
 }
 
+static int delete_block_group_roots(struct btrfs_trans_handle *trans,
+				    struct btrfs_block_group *cache)
+{
+	struct btrfs_fs_info *fs_info = trans->fs_info;
+	struct btrfs_root *tree_root = fs_info->tree_root;
+	int ret;
+
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		return 0;
+	if (!cache->csum_root)
+		return 0;
+
+	ret = btrfs_delete_and_free_root(trans, cache->csum_root);
+	if (!ret)
+		cache->csum_root = NULL;
+	return ret;
+}
+
 int btrfs_remove_block_group(struct btrfs_trans_handle *trans,
 			     u64 bytenr, u64 len)
 {
@@ -3246,6 +3323,15 @@ int btrfs_remove_block_group(struct btrfs_trans_handle *trans,
 	if (ret < 0) {
 		fprintf(stderr,
 			"failed to free block group item for [%llu,%llu)\n",
+			bytenr, bytenr + len);
+		btrfs_unpin_extent(fs_info, bytenr, len);
+		return ret;
+	}
+
+	ret = delete_block_group_roots(trans, block_group);
+	if (ret < 0) {
+		fprintf(stderr,
+			"failed to free block group roots for [%llu,%llu)\n",
 			bytenr, bytenr + len);
 		btrfs_unpin_extent(fs_info, bytenr, len);
 		return ret;
