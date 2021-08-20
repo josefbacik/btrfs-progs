@@ -62,6 +62,7 @@ static int btrfs_write_empty_tree(int fd, struct btrfs_mkfs_config *cfg,
 
 static int btrfs_create_tree_root(int fd, struct btrfs_mkfs_config *cfg,
 				  struct extent_buffer *buf,
+				  u64 first_bg_offset,
 				  const enum btrfs_mkfs_block *blocks,
 				  int blocks_nr)
 {
@@ -74,6 +75,8 @@ static int btrfs_create_tree_root(int fd, struct btrfs_mkfs_config *cfg,
 	int blk;
 	int i;
 	u8 uuid[BTRFS_UUID_SIZE];
+	bool extent_tree_v2 = !!(cfg->features &
+				 BTRFS_FEATURE_INCOMPAT_EXTENT_TREE_V2);
 
 	memset(buf->data + sizeof(struct btrfs_header), 0,
 		cfg->nodesize - sizeof(struct btrfs_header));
@@ -92,7 +95,6 @@ static int btrfs_create_tree_root(int fd, struct btrfs_mkfs_config *cfg,
 	btrfs_set_root_generation(&root_item, 1);
 
 	btrfs_set_disk_key_type(&disk_key, BTRFS_ROOT_ITEM_KEY);
-	btrfs_set_disk_key_offset(&disk_key, 0);
 	itemoff = __BTRFS_LEAF_DATA_SIZE(cfg->nodesize) - sizeof(root_item);
 
 	for (i = 0; i < blocks_nr; i++) {
@@ -100,6 +102,11 @@ static int btrfs_create_tree_root(int fd, struct btrfs_mkfs_config *cfg,
 		if (blk == MKFS_ROOT_TREE || blk == MKFS_CHUNK_TREE)
 			continue;
 
+		if (extent_tree_v2 && blk == MKFS_FREE_SPACE_TREE)
+			btrfs_set_disk_key_offset(&disk_key,
+						  first_bg_offset);
+		else
+			btrfs_set_disk_key_offset(&disk_key, 0);
 		btrfs_set_root_bytenr(&root_item, cfg->blocks[blk]);
 		btrfs_set_disk_key_objectid(&disk_key,
 			reference_root_table[blk]);
@@ -379,7 +386,8 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 			    btrfs_header_chunk_tree_uuid(buf),
 			    BTRFS_UUID_SIZE);
 
-	ret = btrfs_create_tree_root(fd, cfg, buf, blocks, blocks_nr);
+	ret = btrfs_create_tree_root(fd, cfg, buf, system_group_offset,
+				     blocks, blocks_nr);
 	if (ret < 0)
 		goto out;
 
