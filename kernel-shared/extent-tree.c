@@ -2579,6 +2579,11 @@ int btrfs_free_block_groups(struct btrfs_fs_info *info)
 			free_extent_buffer(cache->csum_root->commit_root);
 			kfree(cache->csum_root);
 		}
+		if (cache->free_space_root) {
+			free_extent_buffer(cache->free_space_root->node);
+			free_extent_buffer(cache->free_space_root->commit_root);
+			kfree(cache->free_space_root);
+		}
 		kfree(cache);
 	}
 
@@ -2741,12 +2746,19 @@ static int read_block_group_roots(struct btrfs_fs_info *fs_info)
 	     n = rb_next(n)) {
 		cache = rb_entry(n, struct btrfs_block_group, cache_node);
 
+		key.objectid = BTRFS_FREE_SPACE_TREE_OBJECTID;
+		key.type = BTRFS_ROOT_ITEM_KEY;
+		key.offset = cache->start;
+
+		root = btrfs_read_fs_root_no_cache(fs_info, &key);
+		if (IS_ERR(root))
+			return PTR_ERR(root);
+		cache->free_space_root = root;
+
 		if (!(cache->flags & BTRFS_BLOCK_GROUP_DATA))
 			continue;
 
 		key.objectid = BTRFS_CSUM_TREE_OBJECTID;
-		key.type = BTRFS_ROOT_ITEM_KEY;
-		key.offset = cache->start;
 
 		root = btrfs_read_fs_root_no_cache(fs_info, &key);
 		if (IS_ERR(root))
@@ -2837,12 +2849,20 @@ static int add_block_group_roots(struct btrfs_trans_handle *trans,
 
 	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
 		return 0;
+
+	key.objectid = BTRFS_FREE_SPACE_TREE_OBJECTID;
+	key.type = BTRFS_ROOT_ITEM_KEY;
+	key.offset = cache->start;
+
+	root = btrfs_create_tree(trans, fs_info, &key);
+	if (IS_ERR(root))
+		return PTR_ERR(root);
+	cache->free_space_root = root;
+
 	if (!(cache->flags & BTRFS_BLOCK_GROUP_DATA))
 		return 0;
 
 	key.objectid = BTRFS_CSUM_TREE_OBJECTID;
-	key.type = BTRFS_ROOT_ITEM_KEY;
-	key.offset = cache->start;
 
 	root = btrfs_create_tree(trans, fs_info, &key);
 	if (IS_ERR(root))
@@ -3268,6 +3288,11 @@ static int delete_block_group_roots(struct btrfs_trans_handle *trans,
 
 	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
 		return 0;
+
+	ret = btrfs_delete_and_free_root(trans, cache->free_space_root);
+	if (!ret)
+		cache->free_space_root = NULL;
+
 	if (!cache->csum_root)
 		return 0;
 

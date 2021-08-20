@@ -1116,6 +1116,7 @@ struct btrfs_block_group {
 	struct btrfs_space_info *space_info;
 	struct btrfs_free_space_ctl *free_space_ctl;
 	struct btrfs_root *csum_root;
+	struct btrfs_root *free_space_root;
 	u64 start;
 	u64 length;
 	u64 used;
@@ -1161,7 +1162,7 @@ struct btrfs_fs_info {
 	struct btrfs_root *dev_root;
 	struct btrfs_root *_csum_root;
 	struct btrfs_root *quota_root;
-	struct btrfs_root *free_space_root;
+	struct btrfs_root *_free_space_root;
 	struct btrfs_root *uuid_root;
 	struct btrfs_root *block_group_root;
 
