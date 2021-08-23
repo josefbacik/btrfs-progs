@@ -216,4 +216,7 @@ int btrfs_delete_and_free_root(struct btrfs_trans_handle *trans,
 struct btrfs_root *btrfs_csum_root(struct btrfs_fs_info *fs_info, u64 bytenr);
 struct btrfs_root *btrfs_first_csum_root(struct btrfs_fs_info *fs_info);
 struct btrfs_root *btrfs_next_csum_root(struct btrfs_root *root);
+struct btrfs_root *btrfs_extent_root(struct btrfs_fs_info *fs_inf, u64 bytenr);
+struct btrfs_root *btrfs_first_extent_root(struct btrfs_fs_info *fs_info);
+struct btrfs_root *btrfs_next_extent_root(struct btrfs_root *root);
 #endif

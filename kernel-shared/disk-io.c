@@ -797,6 +797,12 @@ struct btrfs_root *btrfs_next_csum_root(struct btrfs_root *root)
 	return NULL;
 }
 
+struct btrfs_root *btrfs_extent_root(struct btrfs_fs_info *fs_info,
+				     u64 bytenr)
+{
+	return fs_info->_extent_root;
+}
+
 struct btrfs_root *btrfs_read_fs_root(struct btrfs_fs_info *fs_info,
 				      struct btrfs_key *location)
 {
@@ -808,7 +814,7 @@ struct btrfs_root *btrfs_read_fs_root(struct btrfs_fs_info *fs_info,
 	if (location->objectid == BTRFS_ROOT_TREE_OBJECTID)
 		return fs_info->tree_root;
 	if (location->objectid == BTRFS_EXTENT_TREE_OBJECTID)
-		return fs_info->extent_root;
+		return fs_info->_extent_root;
 	if (location->objectid == BTRFS_CHUNK_TREE_OBJECTID)
 		return fs_info->chunk_root;
 	if (location->objectid == BTRFS_DEV_TREE_OBJECTID)
@@ -850,7 +856,7 @@ void btrfs_free_fs_info(struct btrfs_fs_info *fs_info)
 		free(fs_info->quota_root);
 
 	free(fs_info->tree_root);
-	free(fs_info->extent_root);
+	free(fs_info->_extent_root);
 	free(fs_info->chunk_root);
 	free(fs_info->dev_root);
 	free(fs_info->_csum_root);
@@ -871,7 +877,7 @@ struct btrfs_fs_info *btrfs_new_fs_info(int writable, u64 sb_bytenr)
 		return NULL;
 
 	fs_info->tree_root = calloc(1, sizeof(struct btrfs_root));
-	fs_info->extent_root = calloc(1, sizeof(struct btrfs_root));
+	fs_info->_extent_root = calloc(1, sizeof(struct btrfs_root));
 	fs_info->chunk_root = calloc(1, sizeof(struct btrfs_root));
 	fs_info->dev_root = calloc(1, sizeof(struct btrfs_root));
 	fs_info->_csum_root = calloc(1, sizeof(struct btrfs_root));
@@ -881,7 +887,7 @@ struct btrfs_fs_info *btrfs_new_fs_info(int writable, u64 sb_bytenr)
 	fs_info->block_group_root = calloc(1, sizeof(struct btrfs_root));
 	fs_info->super_copy = calloc(1, BTRFS_SUPER_INFO_SIZE);
 
-	if (!fs_info->tree_root || !fs_info->extent_root ||
+	if (!fs_info->tree_root || !fs_info->_extent_root ||
 	    !fs_info->chunk_root || !fs_info->dev_root ||
 	    !fs_info->_csum_root || !fs_info->quota_root ||
 	    !fs_info->_free_space_root || !fs_info->uuid_root ||
@@ -1015,8 +1021,8 @@ static inline bool maybe_load_block_groups(struct btrfs_fs_info *fs_info,
 		if (fs_info->block_group_root &&
 		    extent_buffer_uptodate(fs_info->block_group_root->node))
 			return true;
-	} else if (fs_info->extent_root &&
-		   extent_buffer_uptodate(fs_info->extent_root->node)) {
+	} else if (fs_info->_extent_root &&
+		   extent_buffer_uptodate(fs_info->_extent_root->node)) {
 		return true;
 	}
 
@@ -1056,11 +1062,11 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 		return -EIO;
 	}
 
-	ret = setup_root_or_create_block(fs_info, flags, fs_info->extent_root,
+	ret = setup_root_or_create_block(fs_info, flags, fs_info->_extent_root,
 					 BTRFS_EXTENT_TREE_OBJECTID, "extent");
 	if (ret)
 		return ret;
-	fs_info->extent_root->track_dirty = 1;
+	fs_info->_extent_root->track_dirty = 1;
 
 	ret = find_and_setup_root(root, fs_info, BTRFS_DEV_TREE_OBJECTID,
 				  fs_info->dev_root);
@@ -1174,8 +1180,8 @@ void btrfs_release_all_roots(struct btrfs_fs_info *fs_info)
 		free_extent_buffer(fs_info->_csum_root->node);
 	if (fs_info->dev_root)
 		free_extent_buffer(fs_info->dev_root->node);
-	if (fs_info->extent_root)
-		free_extent_buffer(fs_info->extent_root->node);
+	if (fs_info->_extent_root)
+		free_extent_buffer(fs_info->_extent_root->node);
 	if (fs_info->tree_root)
 		free_extent_buffer(fs_info->tree_root->node);
 	if (fs_info->log_root_tree)
@@ -1912,11 +1918,11 @@ static void backup_super_roots(struct btrfs_fs_info *info)
 	btrfs_set_backup_chunk_root_level(root_backup,
 			       btrfs_header_level(info->chunk_root->node));
 
-	btrfs_set_backup_extent_root(root_backup, info->extent_root->node->start);
+	btrfs_set_backup_extent_root(root_backup, info->_extent_root->node->start);
 	btrfs_set_backup_extent_root_gen(root_backup,
-			       btrfs_header_generation(info->extent_root->node));
+			       btrfs_header_generation(info->_extent_root->node));
 	btrfs_set_backup_extent_root_level(root_backup,
-			       btrfs_header_level(info->extent_root->node));
+			       btrfs_header_level(info->_extent_root->node));
 	/*
 	 * we might commit during log recovery, which happens before we set
 	 * the fs_root.  Make sure it is valid before we fill it in.
