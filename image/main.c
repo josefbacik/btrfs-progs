@@ -989,6 +989,13 @@ static int create_metadump(const char *input, FILE *out, int num_threads,
 		return -EIO;
 	}
 
+	/*
+	 * The extent tree no longer tracks every allocated block on the file
+	 * system with extent tree v2, so force walk_trees if it is set.
+	 */
+	if (btrfs_fs_incompat(root->fs_info, EXTENT_TREE_V2))
+		walk_trees = 1;
+
 	ret = metadump_init(&metadump, root, out, num_threads,
 			    compress_level, sanitize);
 	if (ret) {
