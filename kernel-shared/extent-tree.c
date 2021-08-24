@@ -116,6 +116,15 @@ static int cache_block_group(struct btrfs_root *root,
 	if (block_group->cached)
 		return 0;
 
+	if (btrfs_fs_compat_ro(root->fs_info, FREE_SPACE_TREE) &&
+	    btrfs_fs_compat_ro(root->fs_info, FREE_SPACE_TREE_VALID)) {
+		ret = load_free_space_tree(root->fs_info, block_group);
+		if (!ret) {
+			block_group->cached = 1;
+			return 0;
+		}
+	}
+
 	path = btrfs_alloc_path();
 	if (!path)
 		return -ENOMEM;
@@ -3637,9 +3646,11 @@ int exclude_super_stripes(struct btrfs_fs_info *fs_info,
 u64 add_new_free_space(struct btrfs_block_group *block_group,
 		       struct btrfs_fs_info *info, u64 start, u64 end)
 {
+	struct extent_io_tree *free_space_cache;
 	u64 extent_start, extent_end, size, total_added = 0;
 	int ret;
 
+	free_space_cache = &info->free_space_cache;
 	while (start < end) {
 		ret = find_first_extent_bit(&info->pinned_extents, start,
 					    &extent_start, &extent_end,
@@ -3653,6 +3664,8 @@ u64 add_new_free_space(struct btrfs_block_group *block_group,
 		} else if (extent_start > start && extent_start < end) {
 			size = extent_start - start;
 			total_added += size;
+			set_extent_dirty(free_space_cache, start,
+					 start + size - 1, GFP_NOFS);
 			ret = btrfs_add_free_space(block_group->free_space_ctl,
 						   start, size);
 			BUG_ON(ret); /* -ENOMEM or logic error */
@@ -3665,6 +3678,8 @@ u64 add_new_free_space(struct btrfs_block_group *block_group,
 	if (start < end) {
 		size = end - start;
 		total_added += size;
+		set_extent_dirty(free_space_cache, start, start + size - 1,
+				 GFP_NOFS);
 		ret = btrfs_add_free_space(block_group->free_space_ctl, start,
 					   size);
 		BUG_ON(ret); /* -ENOMEM or logic error */
