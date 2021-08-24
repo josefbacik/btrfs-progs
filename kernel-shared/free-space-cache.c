@@ -828,6 +828,9 @@ int btrfs_add_free_space(struct btrfs_free_space_ctl *ctl, u64 offset,
 	struct btrfs_free_space *info;
 	int ret = 0;
 
+	if (!ctl)
+		return 0;
+
 	info = calloc(1, sizeof(*info));
 	if (!info)
 		return -ENOMEM;
