@@ -9394,10 +9394,20 @@ again:
 		if (btrfs_fs_incompat(gfs_info, EXTENT_TREE_V2)) {
 			struct btrfs_root *tmp;
 
+			key.objectid = BTRFS_FREE_SPACE_TREE_OBJECTID;
+			key.type = BTRFS_ROOT_ITEM_KEY;
+			key.offset = cache->start;
+
+			tmp = btrfs_read_fs_root_no_cache(gfs_info, &key);
+			if (IS_ERR(tmp)) {
+				error("Couldn't read free space tree for %llu",
+				      cache->start);
+				return PTR_ERR(tmp);
+			}
+			cache->free_space_root = tmp;
+
 			if (cache->flags & BTRFS_BLOCK_GROUP_DATA) {
 				key.objectid = BTRFS_CSUM_TREE_OBJECTID;
-				key.type = BTRFS_ROOT_ITEM_KEY;
-				key.offset = cache->start;
 
 				tmp = btrfs_read_fs_root_no_cache(gfs_info, &key);
 				if (IS_ERR(tmp)) {
