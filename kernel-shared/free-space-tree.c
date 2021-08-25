@@ -1229,15 +1229,10 @@ int btrfs_clear_free_space_tree(struct btrfs_fs_info *fs_info)
 	struct btrfs_trans_handle *trans;
 	struct btrfs_root *tree_root = fs_info->tree_root;
 	struct btrfs_root *free_space_root = fs_info->_free_space_root;
-	int ret;
+	struct btrfs_block_group *block_group;
 	u64 features;
-
-	/*
-	 * We aren't allowed to just clear the free space tree with
-	 * extent-tree-v2.
-	 */
-	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
-		return -EINVAL;
+	u64 start = BTRFS_SUPER_INFO_OFFSET + BTRFS_SUPER_INFO_SIZE;
+	int ret;
 
 	trans = btrfs_start_transaction(tree_root, 0);
 	if (IS_ERR(trans))
@@ -1247,15 +1242,38 @@ int btrfs_clear_free_space_tree(struct btrfs_fs_info *fs_info)
 	features &= ~(BTRFS_FEATURE_COMPAT_RO_FREE_SPACE_TREE_VALID |
 		      BTRFS_FEATURE_COMPAT_RO_FREE_SPACE_TREE);
 	btrfs_set_super_compat_ro_flags(fs_info->super_copy, features);
-	fs_info->_free_space_root = NULL;
 
-	ret = clear_free_space_tree(trans, free_space_root);
-	if (ret)
-		goto abort;
+	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2)) {
+		do {
+			block_group = btrfs_lookup_first_block_group(fs_info,
+								     start);
+			if (!block_group)
+				break;
+			start = block_group->start + block_group->length;
+			free_space_root = block_group->free_space_root;
+			block_group->free_space_root = NULL;
+			if (!free_space_root)
+				continue;
+			ret = clear_free_space_tree(trans, free_space_root);
+			if (ret)
+				goto abort;
+			ret = btrfs_delete_and_free_root(trans,
+							 free_space_root);
+			if (ret)
+				goto abort;
+		} while (block_group);
+	} else {
+		free_space_root = fs_info->_free_space_root;
+		fs_info->_free_space_root = NULL;
 
-	ret = btrfs_delete_and_free_root(trans, free_space_root);
-	if (!ret)
-		ret = btrfs_commit_transaction(trans, tree_root);
+		ret = clear_free_space_tree(trans, free_space_root);
+		if (ret)
+			goto abort;
+
+		ret = btrfs_delete_and_free_root(trans, free_space_root);
+		if (!ret)
+			ret = btrfs_commit_transaction(trans, tree_root);
+	}
 abort:
 	return ret;
 }
