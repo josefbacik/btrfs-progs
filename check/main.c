@@ -9364,16 +9364,20 @@ again:
 		return ret;
 	}
 
-	/* Ok we can allocate now, reinit the extent root */
-	ret = btrfs_fsck_reinit_root(trans, btrfs_extent_root(gfs_info, 0));
-	if (ret) {
-		fprintf(stderr, "extent root initialization failed\n");
-		/*
-		 * When the transaction code is updated we should end the
-		 * transaction, but for now progs only knows about commit so
-		 * just return an error.
-		 */
-		return ret;
+	/* Ok we can allocate now, reinit the extent root.  If we're extent tree
+	 * v2 we will clear the roots below. */
+	if (!btrfs_fs_incompat(gfs_info, EXTENT_TREE_V2)) {
+		ret = btrfs_fsck_reinit_root(trans,
+					     btrfs_extent_root(gfs_info, 0));
+		if (ret) {
+			fprintf(stderr, "extent root initialization failed\n");
+			/*
+			 * When the transaction code is updated we should end
+			 * the transaction, but for now progs only knows about
+			 * commit so just return an error.
+			 */
+			return ret;
+		}
 	}
 
 	/*
@@ -9404,11 +9408,29 @@ again:
 
 		if (btrfs_fs_incompat(gfs_info, EXTENT_TREE_V2)) {
 			struct btrfs_root *tmp;
+			struct extent_buffer *c;
 
-			key.objectid = BTRFS_FREE_SPACE_TREE_OBJECTID;
+			key.objectid = BTRFS_EXTENT_TREE_OBJECTID;
 			key.type = BTRFS_ROOT_ITEM_KEY;
 			key.offset = cache->start;
 
+			c = btrfs_fsck_clear_root(trans, &key);
+			if (IS_ERR(c)) {
+				error("Couldn't clear extent root for %llu",
+				      cache->start);
+				return PTR_ERR(c);
+			}
+			free_extent_buffer(c);
+
+			tmp = btrfs_read_fs_root_no_cache(gfs_info, &key);
+			if (IS_ERR(tmp)) {
+				error("Couldn't read extent root for %llu",
+				      cache->start);
+				return PTR_ERR(tmp);
+			}
+			cache->extent_root = tmp;
+
+			key.objectid = BTRFS_FREE_SPACE_TREE_OBJECTID;
 			tmp = btrfs_read_fs_root_no_cache(gfs_info, &key);
 			if (IS_ERR(tmp)) {
 				error("Couldn't read free space tree for %llu",
