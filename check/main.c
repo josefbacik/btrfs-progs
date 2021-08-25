@@ -9675,15 +9675,16 @@ out:
 	return ret;
 }
 
-static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans)
+static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans,
+				      struct btrfs_root *extent_root)
 {
-	struct btrfs_root *extent_root = btrfs_extent_root(gfs_info, 0);
 	struct btrfs_root *csum_root;
 	struct btrfs_path path;
 	struct btrfs_extent_item *ei;
 	struct extent_buffer *leaf;
 	char *buf;
 	struct btrfs_key key;
+	u64 last_end = 0;
 	int ret;
 
 	btrfs_init_path(&path);
@@ -9703,6 +9704,8 @@ static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans)
 	}
 
 	while (1) {
+		u64 start, len;
+
 		if (path.slots[0] >= btrfs_header_nritems(path.nodes[0])) {
 			ret = btrfs_next_leaf(extent_root, &path);
 			if (ret < 0)
@@ -9720,6 +9723,21 @@ static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans)
 			continue;
 		}
 
+		start = key.objectid;
+		len = key.offset;
+
+		/*
+		 * Extent tree v2 has overlapping extent references, so skip if
+		 * we've already csum'ed this range.
+		 */
+		if (start + len <= last_end) {
+			path.slots[0]++;
+			continue;
+		} else if (start < last_end) {
+			start = last_end;
+			len = key.objectid + key.offset - start;
+		}
+
 		ei = btrfs_item_ptr(leaf, path.slots[0],
 				    struct btrfs_extent_item);
 		if (!(btrfs_extent_flags(leaf, ei) &
@@ -9728,9 +9746,8 @@ static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans)
 			continue;
 		}
 
-		csum_root = btrfs_csum_root(gfs_info, key.objectid);
-		ret = populate_csum(trans, csum_root, buf, key.objectid,
-				    key.offset);
+		csum_root = btrfs_csum_root(gfs_info, start);
+		ret = populate_csum(trans, csum_root, buf, start, len);
 		if (ret)
 			break;
 		path.slots[0]++;
@@ -9751,10 +9768,31 @@ static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans)
 static int fill_csum_tree(struct btrfs_trans_handle *trans,
 			  int search_fs_tree)
 {
+	struct btrfs_block_group *block_group;
+	u64 start = 0;
+	int ret = 0;
+
 	if (search_fs_tree)
 		return fill_csum_tree_from_fs(trans);
-	else
-		return fill_csum_tree_from_extent(trans);
+	if (!btrfs_fs_incompat(trans->fs_info, EXTENT_TREE_V2))
+		return fill_csum_tree_from_extent(trans,
+					btrfs_extent_root(gfs_info, 0));
+
+
+	while (!ret) {
+		block_group = btrfs_lookup_first_block_group(gfs_info, start);
+		if (!block_group)
+			break;
+
+		start = block_group->start + block_group->length;
+		if (!(block_group->flags & BTRFS_BLOCK_GROUP_DATA))
+			continue;
+
+		ret = fill_csum_tree_from_extent(trans,
+						 block_group->extent_root);
+	}
+
+	return ret;
 }
 
 static void free_roots_info_cache(void)
