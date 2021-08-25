@@ -1024,100 +1024,57 @@ out:
 	return ret;
 }
 
-int populate_free_space_tree(struct btrfs_trans_handle *trans,
-			     struct btrfs_block_group *block_group)
+static int populate_free_space_tree(struct btrfs_trans_handle *trans,
+				    struct btrfs_block_group *block_group,
+				    struct extent_io_tree *used)
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_root *extent_root;
-	struct btrfs_path *path, *path2;
+	struct btrfs_path *path;
 	struct btrfs_key key;
-	u64 start, end;
+	u64 start, end, last_end, bg_end;
 	int ret;
 
-	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
-		return -EINVAL;
-
-	extent_root = btrfs_extent_root(fs_info, 0);
+	extent_root = btrfs_extent_root(fs_info, block_group->start);
 
 	path = btrfs_alloc_path();
 	if (!path)
 		return -ENOMEM;
-	path->reada = READA_FORWARD;
 
-	path2 = btrfs_alloc_path();
-	if (!path2) {
-		btrfs_free_path(path);
-		return -ENOMEM;
-	}
-
-	ret = add_new_free_space_info(trans, block_group, path2);
+	ret = add_new_free_space_info(trans, block_group, path);
 	if (ret)
 		goto out;
 
 	start = block_group->start;
-	end = block_group->start + block_group->length;
+	bg_end = block_group->start + block_group->length;
+	last_end = start;
 
-	/*
-	 * Iterate through all of the extent and metadata items in this block
-	 * group, adding the free space between them and the free space at the
-	 * end. Note that EXTENT_ITEM and METADATA_ITEM are less than
-	 * BLOCK_GROUP_ITEM, so an extent may precede the block group that it's
-	 * contained in.
-	 */
-	key.objectid = block_group->start;
-	key.type = BTRFS_EXTENT_ITEM_KEY;
-	key.offset = 0;
-
-	ret = btrfs_search_slot_for_read(extent_root, &key, path, 1, 0);
-	if (ret < 0)
-		goto out;
-	if (ret > 0) {
-		ASSERT(btrfs_fs_incompat(trans->fs_info, EXTENT_TREE_V2));
-		goto done;
-	}
-
-	while (1) {
-		btrfs_item_key_to_cpu(path->nodes[0], &key, path->slots[0]);
-
-		if (key.type == BTRFS_EXTENT_ITEM_KEY ||
-				key.type == BTRFS_METADATA_ITEM_KEY) {
-			if (key.objectid >= end)
-				break;
-
-			if (start < key.objectid) {
-				ret = __add_to_free_space_tree(trans,
-						block_group, path2, start,
-						key.objectid - start);
-				if (ret)
-					goto out;
-			}
-			start = key.objectid;
-			if (key.type == BTRFS_METADATA_ITEM_KEY)
-				start += trans->fs_info->nodesize;
-			else
-				start += key.offset;
-		} else if (key.type == BTRFS_BLOCK_GROUP_ITEM_KEY) {
-			if (key.objectid != block_group->start)
-				break;
-		}
-
-		ret = btrfs_next_item(extent_root, path);
-		if (ret < 0)
-			goto out;
-		if (ret)
+	while (start < bg_end) {
+		ret = find_first_extent_bit(used, block_group->start, &start,
+					    &end, EXTENT_DIRTY);
+		if (ret || start >= bg_end)
 			break;
+		if (last_end < start) {
+			ret = __add_to_free_space_tree(trans, block_group,
+						       path, last_end,
+						       start - last_end);
+			if (ret)
+				goto out;
+		}
+		end = min(end, bg_end - 1);
+		clear_extent_dirty(used, start, end);
+		start = end + 1;
+		last_end = start;
 	}
-done:
-	if (start < end) {
-		ret = __add_to_free_space_tree(trans, block_group, path2,
-				start, end - start);
+
+	if (last_end < bg_end) {
+		ret = __add_to_free_space_tree(trans, block_group, path,
+					       last_end, bg_end - last_end);
 		if (ret)
 			goto out;
 	}
-
 	ret = 0;
 out:
-	btrfs_free_path(path2);
 	btrfs_free_path(path);
 	return ret;
 }
@@ -1473,6 +1430,7 @@ static inline void __btrfs_set_fs_compat_ro(struct btrfs_fs_info *fs_info,
 
 int btrfs_create_free_space_tree(struct btrfs_fs_info *fs_info)
 {
+	struct extent_io_tree used;
 	struct btrfs_trans_handle *trans;
 	struct btrfs_root *tree_root = fs_info->tree_root;
 	struct btrfs_root *free_space_root;
@@ -1481,35 +1439,51 @@ int btrfs_create_free_space_tree(struct btrfs_fs_info *fs_info)
 	u64 start = BTRFS_SUPER_INFO_OFFSET + BTRFS_SUPER_INFO_SIZE;
 	int ret;
 
-	/*
-	 * Not allowed to do this with extent-tree-v2, it requires a completely
-	 * different method to populate.
-	 */
-	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
-		return -EINVAL;
-
 	trans = btrfs_start_transaction(tree_root, 0);
 	if (IS_ERR(trans))
 		return PTR_ERR(trans);
 
+	extent_io_tree_init(&used);
+
+	ret = btrfs_mark_used_blocks(fs_info, &used);
+	if (ret)
+		goto abort;
+
 	key.objectid = BTRFS_FREE_SPACE_TREE_OBJECTID;
 	key.type = BTRFS_ROOT_ITEM_KEY;
-	key.offset = 0;
 
-	free_space_root = btrfs_create_tree(trans, fs_info, &key);
-	if (IS_ERR(free_space_root)) {
-		ret = PTR_ERR(free_space_root);
-		goto abort;
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2)) {
+		key.offset = 0;
+
+		free_space_root = btrfs_create_tree(trans, fs_info, &key);
+		if (IS_ERR(free_space_root)) {
+			ret = PTR_ERR(free_space_root);
+			goto abort;
+		}
+		fs_info->_free_space_root = free_space_root;
+		add_root_to_dirty_list(free_space_root);
 	}
-	fs_info->_free_space_root = free_space_root;
-	add_root_to_dirty_list(free_space_root);
 
 	do {
 		block_group = btrfs_lookup_first_block_group(fs_info, start);
 		if (!block_group)
 			break;
 		start = block_group->start + block_group->length;
-		ret = populate_free_space_tree(trans, block_group);
+
+		if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2)) {
+			key.offset = block_group->start;
+
+			free_space_root = btrfs_create_tree(trans, fs_info,
+							    &key);
+			if (IS_ERR(free_space_root)) {
+				ret = PTR_ERR(free_space_root);
+				goto abort;
+			}
+			block_group->free_space_root = free_space_root;
+			add_root_to_dirty_list(free_space_root);
+		}
+
+		ret = populate_free_space_tree(trans, block_group, &used);
 		if (ret)
 			goto abort;
 	} while (block_group);
@@ -1518,6 +1492,7 @@ int btrfs_create_free_space_tree(struct btrfs_fs_info *fs_info)
 	btrfs_set_fs_compat_ro(fs_info, FREE_SPACE_TREE_VALID);
 	btrfs_set_super_cache_generation(fs_info->super_copy, 0);
 
+	extent_io_tree_cleanup(&used);
 	ret = btrfs_commit_transaction(trans, tree_root);
 	if (ret)
 		return ret;
@@ -1525,6 +1500,7 @@ int btrfs_create_free_space_tree(struct btrfs_fs_info *fs_info)
 	return 0;
 
 abort:
+	extent_io_tree_cleanup(&used);
 	btrfs_abort_transaction(trans, ret);
 	return ret;
 }
