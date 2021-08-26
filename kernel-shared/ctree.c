@@ -3192,6 +3192,7 @@ int btrfs_previous_extent_item(struct btrfs_root *root,
 	struct extent_buffer *leaf;
 	u32 nritems;
 	int ret;
+	bool overlap = btrfs_fs_incompat(root->fs_info, EXTENT_TREE_V2);
 
 	while (1) {
 		if (path->slots[0] == 0) {
@@ -3209,7 +3210,10 @@ int btrfs_previous_extent_item(struct btrfs_root *root,
 			path->slots[0]--;
 
 		btrfs_item_key_to_cpu(leaf, &found_key, path->slots[0]);
-		if (found_key.objectid < min_objectid)
+		if (!overlap && found_key.objectid < min_objectid)
+			break;
+		if (overlap &&
+		    (found_key.objectid + found_key.offset < min_objectid))
 			break;
 		if (found_key.type == BTRFS_EXTENT_ITEM_KEY ||
 		    found_key.type == BTRFS_METADATA_ITEM_KEY)
