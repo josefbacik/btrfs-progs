@@ -10824,12 +10824,14 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 		if (ret)
 			goto close_out;
 	}
-	root = btrfs_extent_root(gfs_info, 0);
-	if (!extent_buffer_uptodate(root->node)) {
-		error("critical: extent_root, unable to check the filesystem");
-		ret = -EIO;
-		err |= !!ret;
-		goto close_out;
+	for (root = btrfs_first_extent_root(gfs_info); root;
+	     root = btrfs_next_extent_root(root)) {
+		if (!extent_buffer_uptodate(root->node)) {
+			error("critical: extent_root, unable to check the filesystem");
+			ret = -EIO;
+			err |= !!ret;
+			goto close_out;
+		}
 	}
 
 	for (root = btrfs_first_csum_root(gfs_info); root;

@@ -809,6 +809,41 @@ struct btrfs_root *btrfs_extent_root(struct btrfs_fs_info *fs_info,
 	return cache->extent_root;
 }
 
+struct btrfs_root *btrfs_first_extent_root(struct btrfs_fs_info *fs_info)
+{
+	struct btrfs_block_group *cache;
+	struct rb_node *n;
+
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		return fs_info->_csum_root;
+
+	for (n = rb_first(&fs_info->block_group_cache_tree); n;
+	     n = rb_next(n)) {
+		cache = rb_entry(n, struct btrfs_block_group, cache_node);
+		if (cache->extent_root)
+			return cache->extent_root;
+	}
+	return NULL;
+}
+
+struct btrfs_root *btrfs_next_extent_root(struct btrfs_root *root)
+{
+	struct btrfs_fs_info *fs_info = root->fs_info;
+	struct btrfs_block_group *cache;
+	struct rb_node *n;
+
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		return NULL;
+
+	cache = btrfs_lookup_block_group(fs_info, root->root_key.offset);
+	for (n = rb_next(&cache->cache_node); n; n = rb_next(n)) {
+		cache = rb_entry(n, struct btrfs_block_group, cache_node);
+		if (cache->extent_root)
+			return cache->extent_root;
+	}
+	return NULL;
+}
+
 struct btrfs_root *btrfs_read_fs_root(struct btrfs_fs_info *fs_info,
 				      struct btrfs_key *location)
 {
