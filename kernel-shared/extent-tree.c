@@ -1917,6 +1917,78 @@ void btrfs_unpin_extent(struct btrfs_fs_info *fs_info,
 	update_pinned_extents(fs_info, bytenr, num_bytes, 0);
 }
 
+int cleanup_extent(struct btrfs_trans_handle *trans, u64 bytenr,
+		   u64 num_bytes, int is_data)
+{
+	int mark_free = 0;
+	int ret;
+
+	/*
+	 * If extent tree v2 had overlapping ranges simply return, we don't have
+	 * anything to free up.
+	 */
+	if (num_bytes == 0)
+		return 0;
+
+	ret = pin_down_bytes(trans, bytenr, num_bytes,
+			     is_data);
+	if (ret > 0)
+		mark_free = 1;
+	BUG_ON(ret < 0);
+
+	if (is_data) {
+		ret = btrfs_del_csums(trans, bytenr, num_bytes);
+		BUG_ON(ret);
+	}
+
+	ret = add_to_free_space_tree(trans, bytenr, num_bytes);
+	if (ret)
+		return ret;
+
+	update_block_group(trans, bytenr, num_bytes, 0, mark_free);
+	return ret;
+}
+
+int find_freeable_range(struct btrfs_trans_handle *trans,
+			struct btrfs_root *extent_root, struct btrfs_path *path,
+			u64 *bytenr, u64 *num_bytes, int is_data)
+{
+	struct btrfs_key key;
+	u64 start = *bytenr, end = *bytenr + *num_bytes;
+	int mark_free = 0;
+	int ret;
+
+	/*
+	 * v1 extent tree doesn't overlap extents, the whole range is freeable.
+	 */
+	if (!btrfs_fs_incompat(extent_root->fs_info, EXTENT_TREE_V2))
+		return 0;
+
+	ret = btrfs_previous_extent_item(extent_root, path, start);
+	if (ret < 0) {
+		return ret;
+	} else if (!ret) {
+		btrfs_item_key_to_cpu(path->nodes[0], &key, path->slots[0]);
+		start = key.objectid + key.offset;
+	}
+
+	ret = btrfs_next_extent_item(extent_root, path, end);
+	if (ret < 0) {
+		return ret;
+	} else if (!ret) {
+		btrfs_item_key_to_cpu(path->nodes[0], &key, path->slots[0]);
+		end = key.objectid;
+	}
+
+	if (end > start) {
+		*bytenr = start;
+		*num_bytes = end - start;
+	} else {
+		*num_bytes = 0;
+	}
+	return 0;
+}
+
 /*
  * remove an extent from the root, returns 0 on success
  */
@@ -2101,28 +2173,18 @@ static int __free_extent(struct btrfs_trans_handle *trans,
 			}
 		}
 
-		ret = pin_down_bytes(trans, bytenr, num_bytes,
-				     is_data);
-		if (ret > 0)
-			mark_free = 1;
-		BUG_ON(ret < 0);
-
 		ret = btrfs_del_items(trans, extent_root, path, path->slots[0],
 				      num_to_del);
 		BUG_ON(ret);
+
+		ret = find_freeable_range(trans, extent_root, path, &bytenr,
+					  &num_bytes, is_data);
+		if (ret)
+			goto fail;
+
 		btrfs_release_path(path);
 
-		if (is_data) {
-			ret = btrfs_del_csums(trans, bytenr, num_bytes);
-			BUG_ON(ret);
-		}
-
-		ret = add_to_free_space_tree(trans, bytenr, num_bytes);
-		if (ret) {
-			goto fail;
-		}
-
-		update_block_group(trans, bytenr, num_bytes, 0, mark_free);
+		ret = cleanup_extent(trans, bytenr, num_bytes, is_data);
 	}
 fail:
 	btrfs_free_path(path);
@@ -3869,8 +3931,13 @@ static int run_delayed_tree_ref(struct btrfs_trans_handle *trans,
 		ret = alloc_reserved_tree_block(trans, node, extent_op);
 	} else if (node->action == BTRFS_DROP_DELAYED_REF) {
 		struct btrfs_delayed_tree_ref *ref = btrfs_delayed_node_to_tree_ref(node);
-		ret =  __free_extent(trans, node->bytenr, node->num_bytes,
-			     ref->parent, ref->root, ref->level, 0, 1);
+		if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+			ret = cleanup_extent(trans, node->bytenr,
+					     node->num_bytes, 0);
+		else
+			ret = __free_extent(trans, node->bytenr,
+					    node->num_bytes, ref->parent,
+					    ref->root, ref->level, 0, 1);
 	} else {
 		BUG();
 	}
