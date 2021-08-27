@@ -2479,6 +2479,10 @@ static int alloc_reserved_tree_block(struct btrfs_trans_handle *trans,
 		ASSERT(end == node->bytenr + node->num_bytes - 1);
 	}
 
+	/* Just remove the free space entry and do our accounting. */
+	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		goto finished;
+
 	path = btrfs_alloc_path();
 	if (!path)
 		return -ENOMEM;
@@ -2512,6 +2516,7 @@ static int alloc_reserved_tree_block(struct btrfs_trans_handle *trans,
 	btrfs_mark_buffer_dirty(leaf);
 	btrfs_free_path(path);
 
+finished:
 	ret = remove_from_free_space_tree(trans, ins.objectid, fs_info->nodesize);
 	if (ret)
 		return ret;
