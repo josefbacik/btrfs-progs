@@ -1184,6 +1184,7 @@ struct btrfs_fs_info {
 	struct btrfs_root *_free_space_root;
 	struct btrfs_root *uuid_root;
 	struct btrfs_root *block_group_root;
+	struct btrfs_root *snapshot_root;
 
 	struct rb_root fs_root_tree;
 
