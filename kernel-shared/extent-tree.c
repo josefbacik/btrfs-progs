@@ -2791,6 +2791,10 @@ btrfs_add_block_group(struct btrfs_fs_info *fs_info, u64 bytes_used, u64 type,
 	INIT_LIST_HEAD(&cache->dirty_list);
 
 	exclude_super_stripes(fs_info, cache);
+	set_extent_dirty(&fs_info->free_space_cache, chunk_offset,
+			 chunk_offset + size - 1);
+	remove_sb_from_cache(fs_info->tree_root, cache);
+	cache->cached = 1;
 	ret = update_space_info(fs_info, cache->flags, size, bytes_used,
 				&cache->space_info);
 	BUG_ON(ret);
