@@ -2670,6 +2670,11 @@ int btrfs_free_block_groups(struct btrfs_fs_info *info)
 			free_extent_buffer(cache->extent_root->commit_root);
 			kfree(cache->extent_root);
 		}
+		if (cache->drop_root) {
+			free_extent_buffer(cache->drop_root->node);
+			free_extent_buffer(cache->drop_root->commit_root);
+			kfree(cache->drop_root);
+		}
 		kfree(cache);
 	}
 
@@ -2841,6 +2846,20 @@ static int read_block_group_roots(struct btrfs_fs_info *fs_info)
 			return PTR_ERR(root);
 		cache->free_space_root = root;
 
+		/*
+		 * We do not need drop roots for system chunks as none of the
+		 * system tree's can be shared.
+		 */
+		if (cache->flags & BTRFS_BLOCK_GROUP_SYSTEM)
+			continue;
+
+		key.objectid = BTRFS_DROP_TREE_OBJECTID;
+
+		root = btrfs_read_fs_root_no_cache(fs_info, &key);
+		if (IS_ERR(root))
+			return PTR_ERR(root);
+		cache->drop_root = root;
+
 		if (!(cache->flags & BTRFS_BLOCK_GROUP_DATA))
 			continue;
 
@@ -2955,6 +2974,16 @@ static int add_block_group_roots(struct btrfs_trans_handle *trans,
 	if (IS_ERR(root))
 		return PTR_ERR(root);
 	cache->free_space_root = root;
+
+	if (cache->flags & BTRFS_BLOCK_GROUP_SYSTEM)
+		return 0;
+
+	key.objectid = BTRFS_DROP_TREE_OBJECTID;
+
+	root = btrfs_create_tree(trans, fs_info, &key);
+	if (IS_ERR(root))
+		return PTR_ERR(root);
+	cache->drop_root = root;
 
 	if (!(cache->flags & BTRFS_BLOCK_GROUP_DATA))
 		return 0;
@@ -3405,6 +3434,14 @@ static int delete_block_group_roots(struct btrfs_trans_handle *trans,
 	ret = btrfs_delete_and_free_root(trans, cache->extent_root);
 	if (ret)
 		return ret;
+
+	if (!cache->drop_root)
+		return 0;
+
+	ret = btrfs_delete_and_free_root(trans, cache->drop_root);
+	if (ret)
+		return ret;
+	cache->drop_root = NULL;
 
 	if (!cache->csum_root)
 		return 0;
