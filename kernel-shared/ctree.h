@@ -94,6 +94,12 @@ struct btrfs_free_space_ctl;
 /* hold the block group items. */
 #define BTRFS_BLOCK_GROUP_TREE_OBJECTID 11ULL
 
+/* hold the snapshot items. */
+#define BTRFS_SNAPSHOT_TREE_OBJECTID 12ULL
+
+/* hold the drop items. */
+#define BTRFS_DROP_TREE_OBJECTID 13ULL
+
 /* device stats in the device tree */
 #define BTRFS_DEV_STATS_OBJECTID 0ULL
 
@@ -331,6 +337,7 @@ static inline unsigned long btrfs_chunk_item_size(int num_stripes)
 
 #define BTRFS_HEADER_FLAG_WRITTEN		(1ULL << 0)
 #define BTRFS_HEADER_FLAG_RELOC			(1ULL << 1)
+#define BTRFS_HEADER_FLAG_SUB_GENERATION	(1ULL << 2)
 #define BTRFS_SUPER_FLAG_SEEDING		(1ULL << 32)
 #define BTRFS_SUPER_FLAG_METADUMP		(1ULL << 33)
 #define BTRFS_SUPER_FLAG_METADUMP_V2		(1ULL << 34)
@@ -1082,6 +1089,17 @@ struct btrfs_qgroup_limit_item {
 	__le64 rsv_exclusive;
 } __attribute__ ((__packed__));
 
+struct btrfs_snapshot_item {
+	__le64 generation;
+	__le64 sub_generation;
+} __attribute__ ((__packed__));
+
+struct btrfs_drop_item {
+	__le64 refs;
+	__le64 generation;
+	__le64 sub_generation;
+} __attribute__ ((__packed__));
+
 struct btrfs_space_info {
 	u64 flags;
 	u64 total_bytes;
@@ -1344,6 +1362,22 @@ static inline u32 BTRFS_MAX_XATTR_SIZE(const struct btrfs_fs_info *info)
  * tree used by the super block to find all the other trees
  */
 #define BTRFS_ROOT_ITEM_KEY	132
+
+/*
+ * Maps the snapshot relationship between the original and snapshot subvolumes.
+ */
+#define BTRFS_SNAPSHOT_ITEM_KEY 133
+
+/*
+ * Items for tracking who has dropped their reference to a shared block.
+ */
+#define BTRFS_DROP_ITEM_KEY 134
+
+/*
+ * If we can't fit our root id in our drop item then we will have this key to
+ * track the root id for the given bytenr.
+ */
+#define BTRFS_DROP_ROOT_KEY 135
 
 /*
  * root backrefs tie subvols and snapshots to the directory entries that
@@ -2436,6 +2470,17 @@ BTRFS_SETGET_STACK_FUNCS(stack_qgroup_limit_rsv_referenced,
 			 struct btrfs_qgroup_limit_item, rsv_referenced, 64);
 BTRFS_SETGET_STACK_FUNCS(stack_qgroup_limit_rsv_exclusive,
 			 struct btrfs_qgroup_limit_item, rsv_exclusive, 64);
+
+/* btrfs_snapshot_item */
+BTRFS_SETGET_FUNCS(snapshot_generation, struct btrfs_snapshot_item,
+		   generation, 64);
+BTRFS_SETGET_FUNCS(snapshot_sub_generation, struct btrfs_snapshot_item,
+		   sub_generation, 64);
+
+/* btrfs_drop_item */
+BTRFS_SETGET_FUNCS(drop_refs, struct btrfs_drop_item, refs, 64);
+BTRFS_SETGET_FUNCS(drop_generation, struct btrfs_drop_item, generation, 64);
+BTRFS_SETGET_FUNCS(drop_sub_generation, struct btrfs_drop_item, sub_generation, 64);
 
 /* btrfs_balance_item */
 BTRFS_SETGET_FUNCS(balance_item_flags, struct btrfs_balance_item, flags, 64);
