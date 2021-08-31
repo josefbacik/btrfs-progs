@@ -700,6 +700,9 @@ void print_key_type(FILE *stream, u64 objectid, u8 type)
 		[BTRFS_PERSISTENT_ITEM_KEY]	= "PERSISTENT_ITEM",
 		[BTRFS_UUID_KEY_SUBVOL]		= "UUID_KEY_SUBVOL",
 		[BTRFS_UUID_KEY_RECEIVED_SUBVOL] = "UUID_KEY_RECEIVED_SUBVOL",
+		[BTRFS_SNAPSHOT_ITEM_KEY]	= "SNAPSHOT_ITEM",
+		[BTRFS_DROP_ITEM_KEY]		= "DROP_ITEM",
+		[BTRFS_DROP_ROOT_KEY]		= "DROP_KEY",
 	};
 
 	if (type == 0 && objectid == BTRFS_FREE_SPACE_OBJECTID) {
@@ -808,6 +811,12 @@ void print_objectid(FILE *stream, u64 objectid, u8 type)
 		break;
 	case BTRFS_BLOCK_GROUP_TREE_OBJECTID:
 		fprintf(stream, "BLOCK_GROUP_TREE");
+		break;
+	case BTRFS_SNAPSHOT_TREE_OBJECTID:
+		fprintf(stream, "SNAPSHOT_TREE");
+		break;
+	case BTRFS_DROP_TREE_OBJECTID:
+		fprintf(stream, "DROP_TREE");
 		break;
 	case (u64)-1:
 		fprintf(stream, "-1");
