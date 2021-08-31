@@ -73,7 +73,6 @@ static const enum btrfs_mkfs_block extent_tree_v1_blocks[] = {
 
 static const enum btrfs_mkfs_block extent_tree_v2_blocks[] = {
 	MKFS_ROOT_TREE,
-	MKFS_EXTENT_TREE,
 	MKFS_CHUNK_TREE,
 	MKFS_DEV_TREE,
 	MKFS_FS_TREE,

@@ -242,9 +242,11 @@ static int recow_roots(struct btrfs_trans_handle *trans,
 	ret = __recow_root(trans, info->tree_root);
 	if (ret)
 		return ret;
-	ret = __recow_root(trans, info->_extent_root);
-	if (ret)
-		return ret;
+	if (info->_extent_root) {
+		ret = __recow_root(trans, info->_extent_root);
+		if (ret)
+			return ret;
+	}
 	ret = __recow_root(trans, info->chunk_root);
 	if (ret)
 		return ret;

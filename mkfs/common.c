@@ -241,6 +241,107 @@ static int create_block_group_tree(int fd, struct btrfs_mkfs_config *cfg,
 	return 0;
 }
 
+static int fill_extent_tree(int fd, struct btrfs_mkfs_config *cfg,
+			    struct extent_buffer *buf, u64 bg_offset,
+			    u64 bg_size, u64 bg_used,
+			    const enum btrfs_mkfs_block *blocks, int blocks_nr)
+{
+	struct btrfs_extent_item *extent_item;
+	struct btrfs_disk_key disk_key;
+	u64 first_free;
+	u64 ref_root;
+	u32 nritems = 0, itemoff, item_size;
+	int blk;
+	int i, ret;
+	bool add_block_group = true;
+	bool skinny_metadata = !!(cfg->features &
+				  BTRFS_FEATURE_INCOMPAT_SKINNY_METADATA);
+
+	first_free = BTRFS_SUPER_INFO_OFFSET + cfg->sectorsize * 2 - 1;
+	first_free &= ~((u64)cfg->sectorsize - 1);
+
+	/* create the items for the extent tree */
+	memset(buf->data + sizeof(struct btrfs_header), 0,
+		cfg->nodesize - sizeof(struct btrfs_header));
+	itemoff = __BTRFS_LEAF_DATA_SIZE(cfg->nodesize);
+	for (i = 0; i < blocks_nr; i++) {
+		blk = blocks[i];
+
+		/* Add the block group item for our temporary chunk. */
+		if (cfg->blocks[blk] > bg_offset &&
+		    add_block_group) {
+			itemoff -= sizeof(struct btrfs_block_group_item);
+			write_block_group_item(buf, nritems, bg_offset,
+					       bg_size, bg_used, itemoff);
+			add_block_group = false;
+			nritems++;
+		}
+
+		item_size = sizeof(struct btrfs_extent_item);
+		if (!skinny_metadata)
+			item_size += sizeof(struct btrfs_tree_block_info);
+
+		if (cfg->blocks[blk] < first_free) {
+			error("block[%d] below first free: %llu < %llu",
+					i, (unsigned long long)cfg->blocks[blk],
+					(unsigned long long)first_free);
+			return -EINVAL;
+		}
+		if (i && cfg->blocks[blk] < cfg->blocks[blocks[i - 1]]) {
+			error("blocks %d and %d in reverse order: %llu < %llu",
+				blk, blocks[i - 1],
+				(unsigned long long)cfg->blocks[blk],
+				(unsigned long long)cfg->blocks[blocks[i - 1]]);
+			return -EINVAL;
+		}
+
+		/* create extent item */
+		itemoff -= item_size;
+		btrfs_set_disk_key_objectid(&disk_key, cfg->blocks[blk]);
+		if (skinny_metadata) {
+			btrfs_set_disk_key_type(&disk_key,
+						BTRFS_METADATA_ITEM_KEY);
+			btrfs_set_disk_key_offset(&disk_key, 0);
+		} else {
+			btrfs_set_disk_key_type(&disk_key,
+						BTRFS_EXTENT_ITEM_KEY);
+			btrfs_set_disk_key_offset(&disk_key, cfg->nodesize);
+		}
+		btrfs_set_item_key(buf, &disk_key, nritems);
+		btrfs_set_item_offset(buf, btrfs_item_nr(nritems),
+				      itemoff);
+		btrfs_set_item_size(buf, btrfs_item_nr(nritems),
+				    item_size);
+		extent_item = btrfs_item_ptr(buf, nritems,
+					     struct btrfs_extent_item);
+		btrfs_set_extent_refs(buf, extent_item, 1);
+		btrfs_set_extent_generation(buf, extent_item, 1);
+		btrfs_set_extent_flags(buf, extent_item,
+				       BTRFS_EXTENT_FLAG_TREE_BLOCK);
+		nritems++;
+
+		/* create extent ref */
+		ref_root = reference_root_table[blk];
+		btrfs_set_disk_key_objectid(&disk_key, cfg->blocks[blk]);
+		btrfs_set_disk_key_offset(&disk_key, ref_root);
+		btrfs_set_disk_key_type(&disk_key, BTRFS_TREE_BLOCK_REF_KEY);
+		btrfs_set_item_key(buf, &disk_key, nritems);
+		btrfs_set_item_offset(buf, btrfs_item_nr(nritems),
+				      itemoff);
+		btrfs_set_item_size(buf, btrfs_item_nr(nritems), 0);
+		nritems++;
+	}
+	btrfs_set_header_bytenr(buf, cfg->blocks[MKFS_EXTENT_TREE]);
+	btrfs_set_header_owner(buf, BTRFS_EXTENT_TREE_OBJECTID);
+	btrfs_set_header_nritems(buf, nritems);
+	csum_tree_block_size(buf, btrfs_csum_type_size(cfg->csum_type), 0,
+			     cfg->csum_type);
+	ret = pwrite(fd, buf->data, cfg->nodesize, cfg->blocks[MKFS_EXTENT_TREE]);
+	if (ret != cfg->nodesize)
+		return (ret < 0 ? -errno : -EIO);
+	return 0;
+}
+
 /*
  * @fs_uuid - if NULL, generates a UUID, returns back the new filesystem UUID
  *
@@ -267,7 +368,6 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 	struct btrfs_super_block super;
 	struct extent_buffer *buf;
 	struct btrfs_disk_key disk_key;
-	struct btrfs_extent_item *extent_item;
 	struct btrfs_chunk *chunk;
 	struct btrfs_dev_item *dev_item;
 	struct btrfs_dev_extent *dev_extent;
@@ -280,17 +380,12 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 	int blk;
 	u32 itemoff;
 	u32 nritems = 0;
-	u64 first_free;
-	u64 ref_root;
 	u32 array_size;
 	u32 item_size;
 	u64 total_used = 0;
-	int skinny_metadata = !!(cfg->features &
-				 BTRFS_FEATURE_INCOMPAT_SKINNY_METADATA);
 	u64 num_bytes;
 	u64 system_group_offset = BTRFS_BLOCK_RESERVED_1M_FOR_SUPER;
 	u64 system_group_size = BTRFS_MKFS_SYSTEM_GROUP_SIZE;
-	bool add_block_group = true;
 	bool free_space_tree = !!(cfg->runtime_features &
 				  BTRFS_RUNTIME_FEATURE_FREE_SPACE_TREE);
 	bool extent_tree_v2 = !!(cfg->features &
@@ -303,7 +398,6 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 	if (extent_tree_v2) {
 		blocks = extent_tree_v2_blocks;
 		blocks_nr = ARRAY_SIZE(extent_tree_v2_blocks);
-		add_block_group = false;
 	}
 
 	if ((cfg->features & BTRFS_FEATURE_INCOMPAT_ZONED)) {
@@ -314,9 +408,6 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 	buf = malloc(sizeof(*buf) + max(cfg->sectorsize, cfg->nodesize));
 	if (!buf)
 		return -ENOMEM;
-
-	first_free = BTRFS_SUPER_INFO_OFFSET + cfg->sectorsize * 2 - 1;
-	first_free &= ~((u64)cfg->sectorsize - 1);
 
 	memset(&super, 0, sizeof(super));
 
@@ -391,91 +482,12 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 	if (ret < 0)
 		goto out;
 
-	/* create the items for the extent tree */
-	memset(buf->data + sizeof(struct btrfs_header), 0,
-		cfg->nodesize - sizeof(struct btrfs_header));
-	nritems = 0;
-	itemoff = __BTRFS_LEAF_DATA_SIZE(cfg->nodesize);
-	for (i = 0; i < blocks_nr; i++) {
-		blk = blocks[i];
-
-		/* Add the block group item for our temporary chunk. */
-		if (cfg->blocks[blk] > system_group_offset &&
-		    add_block_group) {
-			itemoff -= sizeof(struct btrfs_block_group_item);
-			write_block_group_item(buf, nritems,
-					       system_group_offset,
-					       system_group_size, total_used,
-					       itemoff);
-			add_block_group = false;
-			nritems++;
-		}
-
-		item_size = sizeof(struct btrfs_extent_item);
-		if (!skinny_metadata)
-			item_size += sizeof(struct btrfs_tree_block_info);
-
-		if (cfg->blocks[blk] < first_free) {
-			error("block[%d] below first free: %llu < %llu",
-					i, (unsigned long long)cfg->blocks[blk],
-					(unsigned long long)first_free);
-			ret = -EINVAL;
+	if (!extent_tree_v2) {
+		ret = fill_extent_tree(fd, cfg, buf, system_group_offset,
+				       system_group_size, total_used, blocks,
+				       blocks_nr);
+		if (ret)
 			goto out;
-		}
-		if (i && cfg->blocks[blk] < cfg->blocks[blocks[i - 1]]) {
-			error("blocks %d and %d in reverse order: %llu < %llu",
-				blk, blocks[i - 1],
-				(unsigned long long)cfg->blocks[blk],
-				(unsigned long long)cfg->blocks[blocks[i - 1]]);
-			ret = -EINVAL;
-			goto out;
-		}
-
-		/* create extent item */
-		itemoff -= item_size;
-		btrfs_set_disk_key_objectid(&disk_key, cfg->blocks[blk]);
-		if (skinny_metadata) {
-			btrfs_set_disk_key_type(&disk_key,
-						BTRFS_METADATA_ITEM_KEY);
-			btrfs_set_disk_key_offset(&disk_key, 0);
-		} else {
-			btrfs_set_disk_key_type(&disk_key,
-						BTRFS_EXTENT_ITEM_KEY);
-			btrfs_set_disk_key_offset(&disk_key, cfg->nodesize);
-		}
-		btrfs_set_item_key(buf, &disk_key, nritems);
-		btrfs_set_item_offset(buf, btrfs_item_nr(nritems),
-				      itemoff);
-		btrfs_set_item_size(buf, btrfs_item_nr(nritems),
-				    item_size);
-		extent_item = btrfs_item_ptr(buf, nritems,
-					     struct btrfs_extent_item);
-		btrfs_set_extent_refs(buf, extent_item, 1);
-		btrfs_set_extent_generation(buf, extent_item, 1);
-		btrfs_set_extent_flags(buf, extent_item,
-				       BTRFS_EXTENT_FLAG_TREE_BLOCK);
-		nritems++;
-
-		/* create extent ref */
-		ref_root = reference_root_table[blk];
-		btrfs_set_disk_key_objectid(&disk_key, cfg->blocks[blk]);
-		btrfs_set_disk_key_offset(&disk_key, ref_root);
-		btrfs_set_disk_key_type(&disk_key, BTRFS_TREE_BLOCK_REF_KEY);
-		btrfs_set_item_key(buf, &disk_key, nritems);
-		btrfs_set_item_offset(buf, btrfs_item_nr(nritems),
-				      itemoff);
-		btrfs_set_item_size(buf, btrfs_item_nr(nritems), 0);
-		nritems++;
-	}
-	btrfs_set_header_bytenr(buf, cfg->blocks[MKFS_EXTENT_TREE]);
-	btrfs_set_header_owner(buf, BTRFS_EXTENT_TREE_OBJECTID);
-	btrfs_set_header_nritems(buf, nritems);
-	csum_tree_block_size(buf, btrfs_csum_type_size(cfg->csum_type), 0,
-			     cfg->csum_type);
-	ret = pwrite(fd, buf->data, cfg->nodesize, cfg->blocks[MKFS_EXTENT_TREE]);
-	if (ret != cfg->nodesize) {
-		ret = (ret < 0 ? -errno : -EIO);
-		goto out;
 	}
 
 	/* create the chunk tree */
