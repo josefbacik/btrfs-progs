@@ -100,6 +100,9 @@ struct btrfs_free_space_ctl;
 /* hold the drop items. */
 #define BTRFS_DROP_TREE_OBJECTID 13ULL
 
+/* hold the remap items. */
+#define BTRFS_REMAP_TREE_OBJECTID 14ULL
+
 /* device stats in the device tree */
 #define BTRFS_DEV_STATS_OBJECTID 0ULL
 
@@ -988,6 +991,7 @@ struct btrfs_csum_item {
 #define BTRFS_BLOCK_GROUP_RAID6    	(1ULL << 8)
 #define BTRFS_BLOCK_GROUP_RAID1C3    	(1ULL << 9)
 #define BTRFS_BLOCK_GROUP_RAID1C4    	(1ULL << 10)
+#define BTRFS_BLOCK_GROUP_REMAPPED	(1ULL << 20)
 #define BTRFS_BLOCK_GROUP_RESERVED	BTRFS_AVAIL_ALLOC_BIT_SINGLE
 
 enum btrfs_raid_types {
@@ -1098,6 +1102,11 @@ struct btrfs_drop_item {
 	__le64 refs;
 	__le64 generation;
 	__le64 sub_generation;
+} __attribute__ ((__packed__));
+
+struct btrfs_remap_item {
+	__le64 bytenr;
+	__le64 unused[2];
 } __attribute__ ((__packed__));
 
 struct btrfs_space_info {
@@ -1423,6 +1432,15 @@ static inline u32 BTRFS_MAX_XATTR_SIZE(const struct btrfs_fs_info *info)
  * blocks are free etc etc
  */
 #define BTRFS_BLOCK_GROUP_ITEM_KEY 192
+
+/* Remap the logical address space to another location. */
+#define BTRFS_REMAP_ITEM_KEY 193
+
+/*
+ * The reverse mapping of remapp'ed items, so we can update the new locations if
+ * we relocate a block group that has remapped extents.
+ */
+#define BTRFS_REMAP_REF_ITEM_KEY 194
 
 /*
  * Every block group is represented in the free space tree by a free space info

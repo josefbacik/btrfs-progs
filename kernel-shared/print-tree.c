@@ -703,6 +703,8 @@ void print_key_type(FILE *stream, u64 objectid, u8 type)
 		[BTRFS_SNAPSHOT_ITEM_KEY]	= "SNAPSHOT_ITEM",
 		[BTRFS_DROP_ITEM_KEY]		= "DROP_ITEM",
 		[BTRFS_DROP_ROOT_KEY]		= "DROP_KEY",
+		[BTRFS_REMAP_ITEM_KEY]		= "REMAP_KEY",
+		[BTRFS_REMAP_REF_ITEM_KEY]	= "REMAP_REF_KEY",
 	};
 
 	if (type == 0 && objectid == BTRFS_FREE_SPACE_OBJECTID) {
@@ -817,6 +819,9 @@ void print_objectid(FILE *stream, u64 objectid, u8 type)
 		break;
 	case BTRFS_DROP_TREE_OBJECTID:
 		fprintf(stream, "DROP_TREE");
+		break;
+	case BTRFS_REMAP_TREE_OBJECTID:
+		fprintf(stream, "REMAP_TREE");
 		break;
 	case (u64)-1:
 		fprintf(stream, "-1");
