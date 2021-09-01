@@ -1310,6 +1310,14 @@ int btrfs_lookup_extent_info(struct btrfs_trans_handle *trans,
 	u64 num_refs;
 	u64 extent_flags;
 
+	if (metadata && btrfs_fs_incompat(fs_info, EXTENT_TREE_V2)) {
+		if (flags)
+			*flags = 0;
+		if (refs)
+			*refs = 0;
+		return 0;
+	}
+
 	if (metadata && !btrfs_fs_incompat(fs_info, SKINNY_METADATA)) {
 		offset = fs_info->nodesize;
 		metadata = 0;
