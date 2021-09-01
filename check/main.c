@@ -6344,6 +6344,14 @@ static int run_next_block(struct btrfs_root *root,
 	if (ret)
 		goto out;
 
+	/*
+	 * Extent tree v2 doesn't track metadata in the extent tree, mark any
+	 * blocks we find as used for the block group.
+	 */
+	if (btrfs_fs_incompat(gfs_info, EXTENT_TREE_V2))
+		update_block_group_used(block_group_cache, buf->start,
+					gfs_info->nodesize);
+
 	if (btrfs_is_leaf(buf)) {
 		btree_space_waste += btrfs_leaf_free_space(buf);
 		for (i = 0; i < nritems; i++) {
