@@ -6574,7 +6574,14 @@ static int run_next_block(struct btrfs_root *root,
 				btrfs_node_ptr_generation(buf, i);
 			tmpl.start = ptr;
 			tmpl.nr = size;
-			tmpl.refs = 1;
+
+			/*
+			 * We do not track refs for metadata in the extent tree,
+			 * do not mark it with a ref count.
+			 */
+			if (!btrfs_fs_incompat(gfs_info, EXTENT_TREE_V2))
+				tmpl.refs = 1;
+
 			tmpl.metadata = 1;
 			tmpl.max_size = size;
 			ret = add_extent_rec(extent_cache, &tmpl);
@@ -6627,7 +6634,14 @@ static int add_root_to_pending(struct extent_buffer *buf,
 	tmpl.start = buf->start;
 	tmpl.nr = buf->len;
 	tmpl.is_root = 1;
-	tmpl.refs = 1;
+
+	/*
+	 * Extent tree v2 does not track references for metadata, do not set
+	 * refs if it is set.
+	 */
+	if (!btrfs_fs_incompat(gfs_info, EXTENT_TREE_V2))
+		tmpl.refs = 1;
+
 	tmpl.metadata = 1;
 	tmpl.max_size = buf->len;
 	add_extent_rec(extent_cache, &tmpl);
