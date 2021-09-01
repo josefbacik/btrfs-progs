@@ -260,6 +260,9 @@ static int recow_roots(struct btrfs_trans_handle *trans,
 		ret = __recow_root(trans, info->snapshot_root);
 		if (ret)
 			return ret;
+		ret = __recow_root(trans, info->remap_root);
+		if (ret)
+			return ret;
 	} else if (info->_free_space_root) {
 		ret = __recow_root(trans, info->_free_space_root);
 		if (ret)
@@ -1513,10 +1516,13 @@ raid_groups:
 		goto out;
 	}
 
-	ret = create_data_reloc_tree(trans);
-	if (ret) {
-		error("unable to create data reloc tree: %d", ret);
-		goto out;
+
+	if (!(features & BTRFS_FEATURE_INCOMPAT_EXTENT_TREE_V2)) {
+		ret = create_data_reloc_tree(trans);
+		if (ret) {
+			error("unable to create data reloc tree: %d", ret);
+			goto out;
+		}
 	}
 
 	ret = create_uuid_tree(trans);

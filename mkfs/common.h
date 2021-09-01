@@ -54,6 +54,7 @@ enum btrfs_mkfs_block {
 	MKFS_FREE_SPACE_TREE,
 	MKFS_BLOCK_GROUP_TREE,
 	MKFS_SNAPSHOT_TREE,
+	MKFS_REMAP_TREE,
 	MKFS_BLOCK_COUNT
 };
 
@@ -80,6 +81,7 @@ static const enum btrfs_mkfs_block extent_tree_v2_blocks[] = {
 	MKFS_FREE_SPACE_TREE,
 	MKFS_BLOCK_GROUP_TREE,
 	MKFS_SNAPSHOT_TREE,
+	MKFS_REMAP_TREE,
 };
 
 struct btrfs_mkfs_config {

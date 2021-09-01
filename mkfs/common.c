@@ -40,6 +40,7 @@ static u64 reference_root_table[] = {
 	[MKFS_FREE_SPACE_TREE]	=	BTRFS_FREE_SPACE_TREE_OBJECTID,
 	[MKFS_BLOCK_GROUP_TREE]	=	BTRFS_BLOCK_GROUP_TREE_OBJECTID,
 	[MKFS_SNAPSHOT_TREE]	=	BTRFS_SNAPSHOT_TREE_OBJECTID,
+	[MKFS_REMAP_TREE]	=	BTRFS_REMAP_TREE_OBJECTID,
 };
 
 static int btrfs_write_empty_tree(int fd, struct btrfs_mkfs_config *cfg,
@@ -649,6 +650,11 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 		ret = btrfs_write_empty_tree(fd, cfg, buf,
 					     BTRFS_SNAPSHOT_TREE_OBJECTID,
 					     cfg->blocks[MKFS_SNAPSHOT_TREE]);
+		if (ret)
+			goto out;
+		ret = btrfs_write_empty_tree(fd, cfg, buf,
+					     BTRFS_REMAP_TREE_OBJECTID,
+					     cfg->blocks[MKFS_REMAP_TREE]);
 		if (ret)
 			goto out;
 	}
