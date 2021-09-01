@@ -876,6 +876,9 @@ struct btrfs_root *btrfs_read_fs_root(struct btrfs_fs_info *fs_info,
 	if (location->objectid == BTRFS_SNAPSHOT_TREE_OBJECTID)
 		return fs_info->snapshot_root ? fs_info->snapshot_root :
 						ERR_PTR(-ENOENT);
+	if (location->objectid == BTRFS_REMAP_TREE_OBJECTID)
+		return fs_info->remap_root ? fs_info->remap_root :
+						ERR_PTR(-ENOENT);
 
 	BUG_ON(location->objectid == BTRFS_TREE_RELOC_OBJECTID);
 
@@ -908,6 +911,7 @@ void btrfs_free_fs_info(struct btrfs_fs_info *fs_info)
 	free(fs_info->uuid_root);
 	free(fs_info->block_group_root);
 	free(fs_info->snapshot_root);
+	free(fs_info->remap_root);
 	free(fs_info->super_copy);
 	free(fs_info->log_root_tree);
 	free(fs_info);
@@ -931,6 +935,7 @@ struct btrfs_fs_info *btrfs_new_fs_info(int writable, u64 sb_bytenr)
 	fs_info->uuid_root = calloc(1, sizeof(struct btrfs_root));
 	fs_info->block_group_root = calloc(1, sizeof(struct btrfs_root));
 	fs_info->snapshot_root = calloc(1, sizeof(struct btrfs_root));
+	fs_info->remap_root = calloc(1, sizeof(struct btrfs_root));
 	fs_info->super_copy = calloc(1, BTRFS_SUPER_INFO_SIZE);
 
 	if (!fs_info->tree_root || !fs_info->_extent_root ||
@@ -938,7 +943,7 @@ struct btrfs_fs_info *btrfs_new_fs_info(int writable, u64 sb_bytenr)
 	    !fs_info->_csum_root || !fs_info->quota_root ||
 	    !fs_info->_free_space_root || !fs_info->uuid_root ||
 	    !fs_info->block_group_root || !fs_info->snapshot_root ||
-	    !fs_info->super_copy)
+	    !fs_info->remap_root || !fs_info->super_copy)
 		goto free_all;
 
 	extent_io_tree_init(&fs_info->extent_cache);
@@ -1181,6 +1186,16 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 		} else {
 			fs_info->snapshot_root->track_dirty = 1;
 		}
+
+		ret = find_and_setup_root(root, fs_info,
+					  BTRFS_REMAP_TREE_OBJECTID,
+					  fs_info->remap_root);
+		if (ret) {
+			free(fs_info->remap_root);
+			fs_info->remap_root = NULL;
+		} else {
+			fs_info->remap_root->track_dirty = 1;
+		}
 	}
 
 	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2) &&
@@ -1234,6 +1249,8 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 
 void btrfs_release_all_roots(struct btrfs_fs_info *fs_info)
 {
+	if (fs_info->remap_root)
+		free_extent_buffer(fs_info->remap_root->node);
 	if (fs_info->snapshot_root)
 		free_extent_buffer(fs_info->snapshot_root->node);
 	if (fs_info->block_group_root)
