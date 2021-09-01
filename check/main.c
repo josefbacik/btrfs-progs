@@ -4088,6 +4088,13 @@ static int check_owner_ref(struct btrfs_root *root,
 	int found = 0;
 	int ret;
 
+	/*
+	 * We don't have extent references for metadata with extent tree v2,
+	 * just return.
+	 */
+	if (btrfs_fs_incompat(gfs_info, EXTENT_TREE_V2))
+		return 0;
+
 	rbtree_postorder_for_each_entry_safe(node, tmp,
 					     &rec->backref_tree, node) {
 		if (node->is_data)
