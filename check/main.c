@@ -6126,6 +6126,9 @@ static int calc_extent_flag(struct cache_tree *extent_cache,
 
 	rec = container_of(cache, struct extent_record, cache);
 
+	if (btrfs_fs_incompat(gfs_info, EXTENT_TREE_V2))
+		goto normal;
+
 	/*
 	 * Except file/reloc tree, we can not have
 	 * FULL BACKREF MODE
