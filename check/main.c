@@ -4886,6 +4886,13 @@ static int add_tree_backref(struct cache_tree *extent_cache, u64 bytenr,
 	int ret;
 	bool insert = false;
 
+	/*
+	 * There are no extent references for metadata in extent tree v2, skip
+	 * this.
+	 */
+	if (btrfs_fs_incompat(gfs_info, EXTENT_TREE_V2))
+		return 0;
+
 	cache = lookup_cache_extent(extent_cache, bytenr, 1);
 	if (!cache) {
 		struct extent_record tmpl;
