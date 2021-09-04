@@ -2408,6 +2408,10 @@ int btrfs_reserve_extent(struct btrfs_trans_handle *trans,
 		alloc_profile = info->avail_system_alloc_bits &
 			        info->system_alloc_profile;
 		profile = BTRFS_BLOCK_GROUP_SYSTEM | alloc_profile;
+	} else if (is_mapping_tree(root->root_key.objectid)) {
+		alloc_profile = info->avail_metadata_alloc_bits &
+				info->metadata_alloc_profile;
+		profile = BTRFS_BLOCK_GROUP_MAPPING | alloc_profile;
 	} else {
 		alloc_profile = info->avail_metadata_alloc_bits &
 			        info->metadata_alloc_profile;

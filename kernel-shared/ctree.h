@@ -991,6 +991,7 @@ struct btrfs_csum_item {
 #define BTRFS_BLOCK_GROUP_RAID6    	(1ULL << 8)
 #define BTRFS_BLOCK_GROUP_RAID1C3    	(1ULL << 9)
 #define BTRFS_BLOCK_GROUP_RAID1C4    	(1ULL << 10)
+#define BTRFS_BLOCK_GROUP_MAPPING	(1ULL << 11)
 #define BTRFS_BLOCK_GROUP_REMAPPED	(1ULL << 20)
 #define BTRFS_BLOCK_GROUP_RESERVED	BTRFS_AVAIL_ALLOC_BIT_SINGLE
 
@@ -1007,9 +1008,10 @@ enum btrfs_raid_types {
 	BTRFS_NR_RAID_TYPES
 };
 
-#define BTRFS_BLOCK_GROUP_TYPE_MASK	(BTRFS_BLOCK_GROUP_DATA |    \
-					 BTRFS_BLOCK_GROUP_SYSTEM |  \
-					 BTRFS_BLOCK_GROUP_METADATA)
+#define BTRFS_BLOCK_GROUP_TYPE_MASK	(BTRFS_BLOCK_GROUP_DATA |	\
+					 BTRFS_BLOCK_GROUP_SYSTEM |	\
+					 BTRFS_BLOCK_GROUP_METADATA |	\
+					 BTRFS_BLOCK_GROUP_MAPPING)
 
 #define BTRFS_BLOCK_GROUP_PROFILE_MASK	(BTRFS_BLOCK_GROUP_RAID0 |   \
 					 BTRFS_BLOCK_GROUP_RAID1 |   \
@@ -2944,6 +2946,14 @@ static inline int is_fstree(u64 rootid)
 	    (signed long long)rootid >= (signed long long)BTRFS_FIRST_FREE_OBJECTID)
 		return 1;
 	return 0;
+}
+
+static inline bool is_mapping_tree(u64 rootid)
+{
+	if (rootid == BTRFS_BLOCK_GROUP_TREE_OBJECTID ||
+	    rootid == BTRFS_REMAP_TREE_OBJECTID)
+		return true;
+	return false;
 }
 
 void btrfs_uuid_to_key(const u8 *uuid, struct btrfs_key *key);

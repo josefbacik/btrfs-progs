@@ -177,6 +177,11 @@ static void bg_flags_to_str(u64 flags, char *ret)
 			strcat(ret, "|");
 		strcat(ret, "SYSTEM");
 	}
+	if (flags & BTRFS_BLOCK_GROUP_MAPPING) {
+		if (!empty)
+			strcat(ret, "|");
+		strcat(ret, "MAPPING");
+	}
 	switch (flags & BTRFS_BLOCK_GROUP_PROFILE_MASK) {
 	case BTRFS_BLOCK_GROUP_RAID0:
 		strcat(ret, "|RAID0");
