@@ -94,7 +94,7 @@ int commit_tree_roots(struct btrfs_trans_handle *trans,
 	int ret;
 
 	if (fs_info->readonly)
-		return 0;
+		return -EIO;
 
 	eb = fs_info->tree_root->node;
 	extent_buffer_get(eb);
@@ -213,6 +213,9 @@ commit_tree:
 		if (ret < 0)
 			goto error;
 		ret = btrfs_run_delayed_refs(trans, -1);
+		if (ret < 0)
+			goto error;
+		ret = commit_tree_roots(trans, fs_info);
 		if (ret < 0)
 			goto error;
 	}
