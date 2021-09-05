@@ -58,6 +58,7 @@ struct mkfs_allocation {
 	u64 metadata;
 	u64 mixed;
 	u64 system;
+	u64 mapping;
 };
 
 static int create_metadata_block_groups(struct btrfs_root *root, int mixed,
@@ -98,6 +99,23 @@ static int create_metadata_block_groups(struct btrfs_root *root, int mixed,
 	allocation->system += system_group_size;
 	if (ret)
 		return ret;
+
+	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2)) {
+		ret = btrfs_alloc_chunk(trans, fs_info, &chunk_start,
+					&chunk_size, BTRFS_BLOCK_GROUP_MAPPING);
+		if (ret == -ENOSPC) {
+			error("no space to allocate mapping chunk");
+			goto err;
+		}
+		if (ret)
+			return ret;
+		ret = btrfs_make_block_group(trans, fs_info, 0,
+					     BTRFS_BLOCK_GROUP_MAPPING,
+					     chunk_start, chunk_size);
+		if (ret)
+			return ret;
+		allocation->mapping += chunk_size;
+	}
 
 	if (mixed) {
 		ret = btrfs_alloc_chunk(trans, fs_info,
@@ -309,6 +327,8 @@ static int create_one_raid_group(struct btrfs_trans_handle *trans,
 	} else if (type ==
 			(BTRFS_BLOCK_GROUP_METADATA | BTRFS_BLOCK_GROUP_DATA)) {
 		allocation->mixed += chunk_size;
+	} else if (type == BTRFS_BLOCK_GROUP_MAPPING) {
+		allocation->mapping += chunk_size;
 	} else {
 		error("unrecognized profile type: 0x%llx",
 				(unsigned long long)type);
@@ -341,6 +361,14 @@ static int create_raid_groups(struct btrfs_trans_handle *trans,
 					    metadata_profile, allocation);
 		if (ret)
 			return ret;
+		if (btrfs_fs_incompat(root->fs_info, EXTENT_TREE_V2)) {
+			ret = create_one_raid_group(trans, root,
+						    BTRFS_BLOCK_GROUP_MAPPING |
+						    metadata_profile,
+						    allocation);
+			if (ret)
+				return ret;
+		}
 
 	}
 	if (!mixed && data_profile) {
@@ -649,6 +677,9 @@ static int cleanup_temp_chunks(struct btrfs_fs_info *fs_info,
 				 (BTRFS_BLOCK_GROUP_METADATA |
 				  BTRFS_BLOCK_GROUP_DATA))
 				alloc->mixed -= found_key.offset;
+			else if ((flags & BTRFS_BLOCK_GROUP_TYPE_MASK) ==
+				 BTRFS_BLOCK_GROUP_MAPPING)
+				alloc->mapping -= found_key.offset;
 		}
 		btrfs_release_path(&path);
 		key.objectid = found_key.objectid + found_key.offset;
@@ -675,6 +706,7 @@ static void update_chunk_allocation(struct btrfs_fs_info *fs_info,
 	allocation->data = 0;
 	allocation->metadata = 0;
 	allocation->system = 0;
+	allocation->mapping = 0;
 	while (1) {
 		bg_cache = btrfs_lookup_first_block_group(fs_info,
 							  search_start);
@@ -686,8 +718,10 @@ static void update_chunk_allocation(struct btrfs_fs_info *fs_info,
 			allocation->data += bg_cache->length;
 		else if (bg_cache->flags & BTRFS_BLOCK_GROUP_METADATA)
 			allocation->metadata += bg_cache->length;
-		else
+		else if (bg_cache->flags & BTRFS_BLOCK_GROUP_SYSTEM)
 			allocation->system += bg_cache->length;
+		else
+			allocation->mapping += bg_cache->length;
 		search_start = bg_cache->start + bg_cache->length;
 	}
 }
@@ -1590,6 +1624,10 @@ raid_groups:
 			printf("  Data+Metadata:    %-8s %16s\n",
 				btrfs_group_profile_str(data_profile),
 				pretty_size(allocation.mixed));
+		if (allocation.mapping)
+			printf("  Mapping:          %-8s %16s\n",
+			       btrfs_group_profile_str(metadata_profile),
+			       pretty_size(allocation.mapping));
 		printf("  System:           %-8s %16s\n",
 			btrfs_group_profile_str(metadata_profile),
 			pretty_size(allocation.system));
