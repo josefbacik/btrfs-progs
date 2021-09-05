@@ -4590,7 +4590,8 @@ static void check_extent_type(struct extent_record *rec)
 
 	/* metadata extent, check the obvious case first */
 	if (!(bg_cache->flags & (BTRFS_BLOCK_GROUP_SYSTEM |
-				 BTRFS_BLOCK_GROUP_METADATA))) {
+				 BTRFS_BLOCK_GROUP_METADATA |
+				 BTRFS_BLOCK_GROUP_MAPPING))) {
 		rec->wrong_chunk_type = 1;
 		return;
 	}
