@@ -247,6 +247,38 @@ static int __recow_root(struct btrfs_trans_handle *trans,
 	return 0;
 }
 
+static int recow_per_bg_roots(struct btrfs_trans_handle *trans)
+{
+	struct btrfs_fs_info *fs_info = trans->fs_info;
+	struct btrfs_block_group *block_group;
+	u64 start = 0;
+	int ret = 0;
+
+	while (1) {
+		block_group = btrfs_lookup_first_block_group(fs_info, start);
+		if (!block_group)
+			break;
+		ret = __recow_root(trans, block_group->free_space_root);
+		if (ret)
+			return ret;
+		if (block_group->drop_root) {
+			ret = __recow_root(trans, block_group->drop_root);
+			if (ret)
+				return ret;
+		}
+		if (block_group->csum_root) {
+			ret = __recow_root(trans, block_group->csum_root);
+			if (ret)
+				return ret;
+			ret = __recow_root(trans, block_group->extent_root);
+			if (ret)
+				return ret;
+		}
+		start = block_group->start + block_group->length;
+	}
+	return 0;
+}
+
 static int recow_roots(struct btrfs_trans_handle *trans,
 		       struct btrfs_root *root)
 {
@@ -272,6 +304,9 @@ static int recow_roots(struct btrfs_trans_handle *trans,
 	if (ret)
 		return ret;
 	if (btrfs_fs_incompat(info, EXTENT_TREE_V2)) {
+		ret = recow_per_bg_roots(trans);
+		if (ret)
+			return ret;
 		ret = __recow_root(trans, info->block_group_root);
 		if (ret)
 			return ret;
