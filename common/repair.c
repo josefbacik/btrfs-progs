@@ -150,6 +150,12 @@ int btrfs_mark_used_tree_blocks(struct btrfs_fs_info *fs_info,
 	if (!ret)
 		ret = traverse_tree_blocks(fs_info, tree,
 					   fs_info->tree_root->node, 1);
+	if (!ret && fs_info->block_group_root)
+		ret = traverse_tree_blocks(fs_info, tree,
+					   fs_info->block_group_root->node, 0);
+	if (!ret && fs_info->remap_root)
+		ret = traverse_tree_blocks(fs_info, tree,
+					   fs_info->remap_root->node, 0);
 	return ret;
 }
 
