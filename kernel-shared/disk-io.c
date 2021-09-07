@@ -1709,6 +1709,31 @@ int btrfs_check_super(struct btrfs_super_block *sb, unsigned sbflags)
 		goto error_out;
 	}
 
+	if (btrfs_super_incompat_flags(sb) & BTRFS_FEATURE_INCOMPAT_EXTENT_TREE_V2) {
+		if (btrfs_super_block_group_root_level(sb) >= BTRFS_MAX_LEVEL) {
+			error("block_group_root level too big: %d >= %d",
+			      btrfs_super_block_group_root_level(sb),
+			      BTRFS_MAX_LEVEL);
+			goto error_out;
+		}
+		if (btrfs_super_remap_root_level(sb) >= BTRFS_MAX_LEVEL) {
+			error("remap_root level too big: %d >= %d",
+			      btrfs_super_remap_root_level(sb),
+			      BTRFS_MAX_LEVEL);
+			goto error_out;
+		}
+		if (!IS_ALIGNED(btrfs_super_block_group_root(sb), 4096)) {
+			error("block_group_root block unaligned: %llu",
+			      btrfs_super_block_group_root(sb));
+			goto error_out;
+		}
+		if (!IS_ALIGNED(btrfs_super_remap_root(sb), 4096)) {
+			error("remap_root block unaligned: %llu",
+			      btrfs_super_remap_root(sb));
+			goto error_out;
+		}
+	}
+
 	if (btrfs_super_incompat_flags(sb) & BTRFS_FEATURE_INCOMPAT_METADATA_UUID)
 		metadata_uuid = sb->metadata_uuid;
 	else
@@ -2027,21 +2052,36 @@ static void backup_super_roots(struct btrfs_fs_info *info)
 	btrfs_set_backup_num_devices(root_backup,
 			     btrfs_super_num_devices(info->super_copy));
 
-	if (!info->_csum_root)
-		return;
+	if (btrfs_fs_incompat(info, EXTENT_TREE_V2)) {
+		btrfs_set_backup_remap_root(root_backup,
+					info->remap_root->node->start);
+		btrfs_set_backup_remap_root_gen(root_backup,
+				btrfs_header_generation(info->remap_root->node));
+		btrfs_set_backup_remap_root_level(root_backup,
+				btrfs_header_level(info->remap_root->node));
 
-	btrfs_set_backup_csum_root(root_backup, info->_csum_root->node->start);
-	btrfs_set_backup_csum_root_gen(root_backup,
-			       btrfs_header_generation(info->_csum_root->node));
-	btrfs_set_backup_csum_root_level(root_backup,
-			       btrfs_header_level(info->_csum_root->node));
+		btrfs_set_backup_block_group_root(root_backup,
+				info->block_group_root->node->start);
+		btrfs_set_backup_block_group_root_gen(root_backup,
+			btrfs_header_generation(info->block_group_root->node));
+		btrfs_set_backup_block_group_root_level(root_backup,
+			btrfs_header_level(info->block_group_root->node));
+	} else {
+		btrfs_set_backup_csum_root(root_backup,
+					   info->_csum_root->node->start);
+		btrfs_set_backup_csum_root_gen(root_backup,
+			btrfs_header_generation(info->_csum_root->node));
+		btrfs_set_backup_csum_root_level(root_backup,
+				btrfs_header_level(info->_csum_root->node));
 
-	btrfs_set_backup_extent_root(root_backup, info->_extent_root->node->start);
-	btrfs_set_backup_extent_root_gen(root_backup,
-			       btrfs_header_generation(info->_extent_root->node));
-	btrfs_set_backup_extent_root_level(root_backup,
-			       btrfs_header_level(info->_extent_root->node));
-};
+		btrfs_set_backup_extent_root(root_backup,
+					     info->_extent_root->node->start);
+		btrfs_set_backup_extent_root_gen(root_backup,
+			btrfs_header_generation(info->_extent_root->node));
+		btrfs_set_backup_extent_root_level(root_backup,
+			btrfs_header_level(info->_extent_root->node));
+	}
+}
 
 int write_all_supers(struct btrfs_fs_info *fs_info)
 {
@@ -2087,7 +2127,8 @@ int write_ctree_super(struct btrfs_trans_handle *trans)
 	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_root *tree_root = fs_info->tree_root;
 	struct btrfs_root *chunk_root = fs_info->chunk_root;
-
+	struct btrfs_root *block_group_root = fs_info->block_group_root;
+	struct btrfs_root *remap_root = fs_info->remap_root;
 	if (fs_info->readonly)
 		return 0;
 
@@ -2103,6 +2144,22 @@ int write_ctree_super(struct btrfs_trans_handle *trans)
 					 btrfs_header_level(chunk_root->node));
 	btrfs_set_super_chunk_root_generation(fs_info->super_copy,
 				btrfs_header_generation(chunk_root->node));
+
+	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2)) {
+		btrfs_set_super_block_group_root(fs_info->super_copy,
+						 block_group_root->node->start);
+		btrfs_set_super_block_group_root_generation(fs_info->super_copy,
+				btrfs_header_generation(block_group_root->node));
+		btrfs_set_super_block_group_root_level(fs_info->super_copy,
+				btrfs_header_level(block_group_root->node));
+
+		btrfs_set_super_remap_root(fs_info->super_copy,
+					   remap_root->node->start);
+		btrfs_set_super_remap_root_generation(fs_info->super_copy,
+				btrfs_header_generation(remap_root->node));
+		btrfs_set_super_remap_root_level(fs_info->super_copy,
+					btrfs_header_level(remap_root->node));
+	}
 
 	ret = write_all_supers(fs_info);
 	if (ret)

@@ -2409,9 +2409,9 @@ BTRFS_SETGET_STACK_FUNCS(super_remap_root, struct btrfs_super_block,
 BTRFS_SETGET_STACK_FUNCS(super_remap_root_generation, struct btrfs_super_block,
 			 remap_root_generation, 64);
 BTRFS_SETGET_STACK_FUNCS(super_block_group_root_level,
-			 struct btrfs_super_block, block_group_level, 8);
-BTRFS_SETGET_STACK_FUNCS(super_remap_level, struct btrfs_super_block,
-			 remap_level, 8);
+			 struct btrfs_super_block, block_group_root_level, 8);
+BTRFS_SETGET_STACK_FUNCS(super_remap_root_level, struct btrfs_super_block,
+			 remap_root_level, 8);
 
 static inline unsigned long btrfs_leaf_data(struct extent_buffer *l)
 {
