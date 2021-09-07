@@ -2835,7 +2835,7 @@ static int read_one_block_group(struct btrfs_fs_info *fs_info,
 	return 0;
 }
 
-static int read_block_group_roots(struct btrfs_fs_info *fs_info)
+int btrfs_read_block_group_roots(struct btrfs_fs_info *fs_info)
 {
 	struct btrfs_root *root;
 	struct btrfs_block_group *cache;
@@ -2926,7 +2926,6 @@ int btrfs_read_block_groups(struct btrfs_fs_info *fs_info)
 		key.offset = 0;
 		btrfs_release_path(&path);
 	}
-	ret = read_block_group_roots(fs_info);
 error:
 	btrfs_release_path(&path);
 	return ret;

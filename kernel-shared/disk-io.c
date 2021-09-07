@@ -1080,39 +1080,105 @@ static inline bool maybe_load_block_groups(struct btrfs_fs_info *fs_info,
 	return false;
 }
 
-int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
-			  unsigned flags)
+static int load_important_roots(struct btrfs_fs_info *fs_info,
+				u64 root_tree_bytenr, unsigned flags)
 {
 	struct btrfs_super_block *sb = fs_info->super_copy;
+	struct btrfs_root_backup *backup = NULL;
 	struct btrfs_root *root;
-	struct btrfs_key key;
-	u64 generation;
-	int ret;
+	u64 bytenr, gen;
+	int index = -1;
 
-	root = fs_info->tree_root;
-	btrfs_setup_root(root, fs_info, BTRFS_ROOT_TREE_OBJECTID);
-	generation = btrfs_super_generation(sb);
-
-	if (!root_tree_bytenr && !(flags & OPEN_CTREE_BACKUP_ROOT)) {
-		root_tree_bytenr = btrfs_super_root(sb);
-	} else if (flags & OPEN_CTREE_BACKUP_ROOT) {
-		struct btrfs_root_backup *backup;
-		int index = find_best_backup_root(sb);
+	if (flags & OPEN_CTREE_BACKUP_ROOT) {
+		index = find_best_backup_root(sb);
 		if (index >= BTRFS_NUM_BACKUP_ROOTS) {
 			fprintf(stderr, "Invalid backup root number\n");
 			return -EIO;
 		}
-		backup = fs_info->super_copy->super_roots + index;
-		root_tree_bytenr = btrfs_backup_tree_root(backup);
-		generation = btrfs_backup_tree_root_gen(backup);
+		backup = sb->super_roots + index;
 	}
 
-	root->node = read_tree_block(fs_info, root_tree_bytenr, generation);
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		goto tree_root;
+
+	if (backup) {
+		bytenr = btrfs_backup_block_group_root(backup);
+		gen = btrfs_backup_block_group_root_gen(backup);
+	} else {
+		bytenr = btrfs_super_block_group_root(sb);
+		gen = btrfs_super_block_group_root_generation(sb);
+	}
+	root = fs_info->block_group_root;
+	btrfs_setup_root(root, fs_info, BTRFS_BLOCK_GROUP_TREE_OBJECTID);
+
+	root->node = read_tree_block(fs_info, bytenr, gen);
+	if (!extent_buffer_uptodate(root->node)) {
+		fprintf(stderr, "Couldn't read block group root\n");
+		return -EIO;
+	}
+
+	if (backup) {
+		bytenr = btrfs_backup_remap_root(backup);
+		gen = btrfs_backup_remap_root_gen(backup);
+	} else {
+		bytenr = btrfs_super_remap_root(sb);
+		gen = btrfs_super_remap_root_generation(sb);
+	}
+	root = fs_info->remap_root;
+	btrfs_setup_root(root, fs_info, BTRFS_REMAP_TREE_OBJECTID);
+
+	root->node = read_tree_block(fs_info, bytenr, gen);
+	if (!extent_buffer_uptodate(root->node)) {
+		fprintf(stderr, "Couldn't read remap root\n");
+		return -EIO;
+	}
+
+	if (maybe_load_block_groups(fs_info, flags)) {
+		int ret = btrfs_read_block_groups(fs_info);
+		if (ret < 0 && ret != -ENOENT) {
+			errno = -ret;
+			error("failed to read block groups: %m");
+			return ret;
+		}
+	}
+
+tree_root:
+	if (backup) {
+		bytenr = btrfs_backup_tree_root(backup);
+		gen = btrfs_backup_tree_root_gen(backup);
+	} else {
+		if (root_tree_bytenr)
+			bytenr = root_tree_bytenr;
+		else
+			bytenr = btrfs_super_root(sb);
+		gen = btrfs_super_generation(sb);
+	}
+
+	fs_info->generation = gen;
+	fs_info->last_trans_committed = gen;
+	root = fs_info->tree_root;
+	btrfs_setup_root(root, fs_info, BTRFS_ROOT_TREE_OBJECTID);
+
+	root->node = read_tree_block(fs_info, bytenr, gen);
 	if (!extent_buffer_uptodate(root->node)) {
 		fprintf(stderr, "Couldn't read tree root\n");
 		return -EIO;
 	}
 
+	return 0;
+}
+
+int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
+			  unsigned flags)
+{
+	struct btrfs_super_block *sb = fs_info->super_copy;
+	struct btrfs_root *root = fs_info->tree_root;
+	struct btrfs_key key;
+	int ret;
+
+	ret = load_important_roots(fs_info, root_tree_bytenr, flags);
+	if (ret)
+		return ret;
 
 	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2)) {
 		ret = setup_root_or_create_block(fs_info, flags,
@@ -1168,16 +1234,6 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 
 	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2)) {
 		ret = find_and_setup_root(root, fs_info,
-					  BTRFS_BLOCK_GROUP_TREE_OBJECTID,
-					  fs_info->block_group_root);
-		if (ret) {
-			free(fs_info->block_group_root);
-			fs_info->block_group_root = NULL;
-		} else {
-			fs_info->block_group_root->track_dirty = 1;
-		}
-
-		ret = find_and_setup_root(root, fs_info,
 					  BTRFS_SNAPSHOT_TREE_OBJECTID,
 					  fs_info->snapshot_root);
 		if (ret) {
@@ -1187,15 +1243,9 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 			fs_info->snapshot_root->track_dirty = 1;
 		}
 
-		ret = find_and_setup_root(root, fs_info,
-					  BTRFS_REMAP_TREE_OBJECTID,
-					  fs_info->remap_root);
-		if (ret) {
-			free(fs_info->remap_root);
-			fs_info->remap_root = NULL;
-		} else {
-			fs_info->remap_root->track_dirty = 1;
-		}
+		ret = btrfs_read_block_group_roots(fs_info);
+		if (ret)
+			return ret;
 	}
 
 	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2) &&
@@ -1221,9 +1271,8 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 			return -EIO;
 	}
 
-	fs_info->generation = generation;
-	fs_info->last_trans_committed = generation;
-	if (maybe_load_block_groups(fs_info, flags)) {
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2) &&
+	    maybe_load_block_groups(fs_info, flags)) {
 		ret = btrfs_read_block_groups(fs_info);
 		/*
 		 * If we don't find any blockgroups (ENOENT) we're either
