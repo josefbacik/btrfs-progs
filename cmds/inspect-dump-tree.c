@@ -83,8 +83,17 @@ out:
 
 static void print_old_roots(struct btrfs_super_block *super)
 {
+	const char *extent_tree_str = "extent root";
+	const char *csum_tree_str = "csum root";
 	struct btrfs_root_backup *backup;
 	int i;
+	bool extent_tree_v2 = (btrfs_super_incompat_flags(super) &
+		BTRFS_FEATURE_INCOMPAT_EXTENT_TREE_V2);
+
+	if (extent_tree_v2) {
+		extent_tree_str = "block group root";
+		csum_tree_str = "remap root";
+	}
 
 	for (i = 0; i < BTRFS_NUM_BACKUP_ROOTS; i++) {
 		backup = super->super_roots + i;
@@ -93,7 +102,7 @@ static void print_old_roots(struct btrfs_super_block *super)
 		       (unsigned long long)btrfs_backup_tree_root_gen(backup),
 		       (unsigned long long)btrfs_backup_tree_root(backup));
 
-		printf("\t\textent root gen %llu block %llu\n",
+		printf("\t\t%s gen %llu block %llu\n", extent_tree_str,
 		       (unsigned long long)btrfs_backup_extent_root_gen(backup),
 		       (unsigned long long)btrfs_backup_extent_root(backup));
 
@@ -105,7 +114,7 @@ static void print_old_roots(struct btrfs_super_block *super)
 		       (unsigned long long)btrfs_backup_dev_root_gen(backup),
 		       (unsigned long long)btrfs_backup_dev_root(backup));
 
-		printf("\t\tcsum root gen %llu block %llu\n",
+		printf("\t\t%s gen %llu block %llu\n", csum_tree_str,
 		       (unsigned long long)btrfs_backup_csum_root_gen(backup),
 		       (unsigned long long)btrfs_backup_csum_root(backup));
 
@@ -510,6 +519,16 @@ static int cmd_inspect_dump_tree(const struct cmd_struct *cmd,
 				       info->log_root_tree->node->start,
 					btrfs_header_level(
 						info->log_root_tree->node));
+			if (info->block_group_root)
+				printf("block group tree: %llu level %d\n",
+				       info->block_group_root->node->start,
+					btrfs_header_level(
+						info->block_group_root->node));
+			if (info->remap_root)
+				printf("remap tree: %llu level %d\n",
+				       info->remap_root->node->start,
+					btrfs_header_level(
+						info->remap_root->node));
 		} else {
 			if (info->tree_root->node) {
 				printf("root tree\n");
@@ -526,6 +545,18 @@ static int cmd_inspect_dump_tree(const struct cmd_struct *cmd,
 			if (info->log_root_tree) {
 				printf("log root tree\n");
 				btrfs_print_tree(info->log_root_tree->node,
+					BTRFS_PRINT_TREE_FOLLOW | print_mode);
+			}
+
+			if (info->block_group_root) {
+				printf("block group tree\n");
+				btrfs_print_tree(info->block_group_root->node,
+					BTRFS_PRINT_TREE_FOLLOW | print_mode);
+			}
+
+			if (info->remap_root) {
+				printf("remap tree\n");
+				btrfs_print_tree(info->remap_root->node,
 					BTRFS_PRINT_TREE_FOLLOW | print_mode);
 			}
 		}
@@ -569,6 +600,28 @@ again:
 		}
 		printf("log root tree\n");
 		btrfs_print_tree(info->log_root_tree->node,
+					BTRFS_PRINT_TREE_FOLLOW | print_mode);
+		goto close_root;
+	}
+
+	if (tree_id && tree_id == BTRFS_BLOCK_GROUP_TREE_OBJECTID) {
+		if (!info->block_group_root) {
+			error("cannot print block group tree, invalid pointer");
+			goto close_root;
+		}
+		printf("block group tree\n");
+		btrfs_print_tree(info->block_group_root->node,
+					BTRFS_PRINT_TREE_FOLLOW | print_mode);
+		goto close_root;
+	}
+
+	if (tree_id && tree_id == BTRFS_REMAP_TREE_OBJECTID) {
+		if (!info->remap_root) {
+			error("cannot print remap tree, invalid pointer");
+			goto close_root;
+		}
+		printf("remap tree\n");
+		btrfs_print_tree(info->remap_root->node,
 					BTRFS_PRINT_TREE_FOLLOW | print_mode);
 		goto close_root;
 	}
