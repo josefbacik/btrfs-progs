@@ -101,7 +101,8 @@ static int btrfs_create_tree_root(int fd, struct btrfs_mkfs_config *cfg,
 
 	for (i = 0; i < blocks_nr; i++) {
 		blk = blocks[i];
-		if (blk == MKFS_ROOT_TREE || blk == MKFS_CHUNK_TREE)
+		if (blk == MKFS_ROOT_TREE || blk == MKFS_CHUNK_TREE ||
+		    blk == MKFS_BLOCK_GROUP_TREE || blk == MKFS_REMAP_TREE)
 			continue;
 
 		if (extent_tree_v2 && blk == MKFS_FREE_SPACE_TREE)
@@ -456,6 +457,16 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 		btrfs_set_super_cache_generation(&super, 0);
 	else
 		btrfs_set_super_cache_generation(&super, -1);
+	if (cfg->features & BTRFS_FEATURE_INCOMPAT_EXTENT_TREE_V2) {
+		btrfs_set_super_block_group_root(&super,
+					cfg->blocks[MKFS_BLOCK_GROUP_TREE]);
+		btrfs_set_super_block_group_root_generation(&super, 1);
+		btrfs_set_super_block_group_root_level(&super, 0);
+		btrfs_set_super_remap_root(&super,
+					   cfg->blocks[MKFS_REMAP_TREE]);
+		btrfs_set_super_remap_root_generation(&super, 1);
+		btrfs_set_super_remap_root_level(&super, 0);
+	}
 	btrfs_set_super_incompat_flags(&super, cfg->features);
 	if (free_space_tree) {
 		u64 ro_flags = BTRFS_FEATURE_COMPAT_RO_FREE_SPACE_TREE |
