@@ -1982,11 +1982,16 @@ static int __free_extent(struct btrfs_trans_handle *trans,
 						owner_offset, refs_to_drop);
 
 	}
+
+	is_data = owner_objectid >= BTRFS_FIRST_FREE_OBJECTID;
+
+	if (btrfs_fs_incompat(trans->fs_info, EXTENT_TREE_V2) && !is_data)
+		return do_free_extent_accounting(trans, bytenr, num_bytes, false);
+
 	path = btrfs_alloc_path();
 	if (!path)
 		return -ENOMEM;
 
-	is_data = owner_objectid >= BTRFS_FIRST_FREE_OBJECTID;
 	if (is_data)
 		skinny_metadata = 0;
 	BUG_ON(!is_data && refs_to_drop != 1);
