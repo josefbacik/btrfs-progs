@@ -2413,6 +2413,9 @@ static int alloc_reserved_tree_block(struct btrfs_trans_handle *trans,
 	sinfo = __find_space_info(fs_info, BTRFS_BLOCK_GROUP_METADATA);
 	ASSERT(sinfo);
 
+	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		goto alloc;
+
 	ins.objectid = node->bytenr;
 	if (skinny_metadata) {
 		ins.offset = ref->level;
@@ -2466,11 +2469,12 @@ static int alloc_reserved_tree_block(struct btrfs_trans_handle *trans,
 	btrfs_mark_buffer_dirty(leaf);
 	btrfs_free_path(path);
 
-	ret = remove_from_free_space_tree(trans, ins.objectid, fs_info->nodesize);
+alloc:
+	ret = remove_from_free_space_tree(trans, node->bytenr, fs_info->nodesize);
 	if (ret)
 		return ret;
 
-	ret = update_block_group(trans, ins.objectid, fs_info->nodesize, 1, 0);
+	ret = update_block_group(trans, node->bytenr, fs_info->nodesize, 1, 0);
 	if (sinfo) {
 		if (fs_info->nodesize > sinfo->bytes_reserved) {
 			WARN_ON(1);
