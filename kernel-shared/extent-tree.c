@@ -1923,6 +1923,33 @@ void btrfs_unpin_extent(struct btrfs_fs_info *fs_info,
 	update_pinned_extents(fs_info, bytenr, num_bytes, 0);
 }
 
+static int do_free_extent_accounting(struct btrfs_trans_handle *trans,
+				     u64 bytenr, u64 num_bytes, bool is_data)
+{
+	int ret, mark_free = 0;
+
+	ret = pin_down_bytes(trans, bytenr, num_bytes, is_data);
+	if (ret > 0)
+		mark_free = 1;
+	else if (ret < 0)
+		return ret;
+
+	if (is_data) {
+		struct btrfs_root *csum_root;
+
+		csum_root = btrfs_csum_root(trans->fs_info, bytenr);
+		ret = btrfs_del_csums(trans, csum_root, bytenr, num_bytes);
+		if (ret)
+			return ret;
+	}
+
+	ret = add_to_free_space_tree(trans, bytenr, num_bytes);
+	if (ret)
+		return ret;
+	update_block_group(trans, bytenr, num_bytes, 0, mark_free);
+	return ret;
+}
+
 /*
  * remove an extent from the root, returns 0 on success
  */
@@ -2093,8 +2120,6 @@ static int __free_extent(struct btrfs_trans_handle *trans,
 			BUG_ON(ret);
 		}
 	} else {
-		int mark_free = 0;
-
 		if (found_extent) {
 			BUG_ON(is_data && refs_to_drop !=
 			       extent_data_ref_count(path, iref));
@@ -2107,32 +2132,13 @@ static int __free_extent(struct btrfs_trans_handle *trans,
 			}
 		}
 
-		ret = pin_down_bytes(trans, bytenr, num_bytes,
-				     is_data);
-		if (ret > 0)
-			mark_free = 1;
-		BUG_ON(ret < 0);
-
 		ret = btrfs_del_items(trans, extent_root, path, path->slots[0],
 				      num_to_del);
 		BUG_ON(ret);
 		btrfs_release_path(path);
 
-		if (is_data) {
-			struct btrfs_root *csum_root;
-
-			csum_root = btrfs_csum_root(trans->fs_info, bytenr);
-			ret = btrfs_del_csums(trans, csum_root, bytenr,
-					      num_bytes);
-			BUG_ON(ret);
-		}
-
-		ret = add_to_free_space_tree(trans, bytenr, num_bytes);
-		if (ret) {
-			goto fail;
-		}
-
-		update_block_group(trans, bytenr, num_bytes, 0, mark_free);
+		ret = do_free_extent_accounting(trans, bytenr, num_bytes, is_data);
+		BUG_ON(ret);
 	}
 fail:
 	btrfs_free_path(path);
