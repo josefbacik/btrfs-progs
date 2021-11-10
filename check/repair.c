@@ -281,6 +281,12 @@ int btrfs_mark_used_blocks(struct btrfs_fs_info *fs_info,
 	struct rb_node *n;
 	int ret;
 
+	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2)) {
+		ret = btrfs_mark_used_tree_blocks(fs_info, tree);
+		if (ret)
+			return ret;
+	}
+
 	root = btrfs_extent_root(fs_info, 0);
 	while (1) {
 		ret = populate_used_from_extent_root(root, tree);
