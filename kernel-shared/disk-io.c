@@ -1166,6 +1166,13 @@ static int load_global_roots(struct btrfs_fs_info *fs_info, unsigned flags)
 	ret = load_global_roots_objectid(fs_info, path,
 					 BTRFS_FREE_SPACE_TREE_OBJECTID, flags,
 					 "free space");
+	if (ret)
+		goto out;
+	if (!btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+		goto out;
+	ret = load_global_roots_objectid(fs_info, path,
+					 BTRFS_GC_TREE_OBJECTID, flags,
+					 "garbage collection");
 out:
 	btrfs_free_path(path);
 	return ret;

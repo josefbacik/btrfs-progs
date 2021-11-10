@@ -76,6 +76,9 @@
 /* Holds raid stripe entries */
 #define BTRFS_RAID_STRIPE_TREE_OBJECTID 12ULL
 
+/* hold the garbage collection items. */
+#define BTRFS_GC_TREE_OBJECTID 13ULL
+
 /* device stats in the device tree */
 #define BTRFS_DEV_STATS_OBJECTID 0ULL
 
@@ -167,6 +170,9 @@
 
 #define BTRFS_ORPHAN_ITEM_KEY		48
 /* reserve 2-15 close to the inode for later flexibility */
+
+/* Garbage collection items. */
+#define BTRFS_GC_INODE_ITEM_KEY		49
 
 /*
  * dir items are the name -> inode pointers in a directory.  There is one
