@@ -885,7 +885,18 @@ static int create_global_roots(struct btrfs_trans_handle *trans,
 {
 	int ret, i;
 
-	for (i = 1; i < nr_global_roots; i++) {
+	for (i = 0; i < nr_global_roots; i++) {
+		ret = create_global_root(trans, BTRFS_GC_TREE_OBJECTID, i);
+		if (ret)
+			return ret;
+
+		/*
+		 * The rest of these are created initially so we want to skip
+		 * root id == 0 for them.
+		 */
+		if (i == 0)
+			continue;
+
 		ret = create_global_root(trans, BTRFS_EXTENT_TREE_OBJECTID, i);
 		if (ret)
 			return ret;
