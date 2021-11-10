@@ -557,6 +557,7 @@ static inline u32 BTRFS_MAX_XATTR_SIZE(const struct btrfs_fs_info *info)
 
 #define BTRFS_ORPHAN_ITEM_KEY		48
 
+
 #define BTRFS_DIR_LOG_ITEM_KEY  60
 #define BTRFS_DIR_LOG_INDEX_KEY 72
 /*
