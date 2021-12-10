@@ -188,6 +188,7 @@ struct unaligned_extent_rec_t {
 #define I_ERR_INVALID_GEN		(1 << 20)
 #define I_ERR_INVALID_NLINK		(1 << 21)
 #define I_ERR_INVALID_XATTR		(1 << 22)
+#define I_ERR_NO_GC_ITEM		(1 << 23)
 
 struct inode_record {
 	struct list_head backrefs;

@@ -648,6 +648,8 @@ static void print_inode_error(struct btrfs_root *root, struct inode_record *rec)
 			rec->nlink);
 	if (errors & I_ERR_INVALID_XATTR)
 		fprintf(stderr, ", invalid xattr");
+	if (errors & I_ERR_NO_GC_ITEM)
+		fprintf(stderr, ", no gc item");
 	fprintf(stderr, "\n");
 
 	/* Print the holes if needed */
@@ -904,6 +906,41 @@ static int check_orphan_item(struct btrfs_root *root, u64 ino)
 	return ret;
 }
 
+static void check_inode_gc_item(struct btrfs_root *root, struct inode_record *rec)
+{
+	struct btrfs_root *gc_root;
+	struct rb_node *n;
+	struct btrfs_path path = {};
+	struct btrfs_key key = {
+		.objectid = root->root_key.objectid,
+		.type = BTRFS_GC_INODE_ITEM_KEY,
+		.offset = rec->ino,
+	};
+	int ret;
+
+	/*
+	 * We may choose to do something fancy with the location of our
+	 * GC_INODE_ITEM entries, so just search all of the gc roots for our
+	 * inode.
+	 */
+	for (n = rb_first(&gfs_info->global_roots_tree); n; n = rb_next(n)) {
+		gc_root = rb_entry(n, struct btrfs_root, rb_node);
+		if (gc_root->root_key.objectid != BTRFS_GC_TREE_OBJECTID)
+			continue;
+		ret = btrfs_search_slot(NULL, gc_root, &key, &path, 0, 0);
+		btrfs_release_path(&path);
+
+		/*
+		 * Found our GC item, that means we don't need an orphan item so
+		 * we can clear both of these errors.
+		 */
+		if (ret == 0) {
+			rec->errors &= ~(I_ERR_NO_GC_ITEM | I_ERR_NO_ORPHAN_ITEM);
+			break;
+		}
+	}
+}
+
 static bool process_inode_item(struct extent_buffer *eb,
 			      int slot, struct btrfs_key *key,
 			      struct shared_node *active_node)
@@ -927,8 +964,11 @@ static bool process_inode_item(struct extent_buffer *eb,
 	if (btrfs_inode_flags(eb, item) & BTRFS_INODE_NODATASUM)
 		rec->nodatasum = 1;
 	rec->found_inode_item = 1;
-	if (rec->nlink == 0)
+	if (rec->nlink == 0) {
 		rec->errors |= I_ERR_NO_ORPHAN_ITEM;
+		if (btrfs_fs_incompat(gfs_info, EXTENT_TREE_V2))
+			rec->errors |= I_ERR_NO_GC_ITEM;
+	}
 	flags = btrfs_inode_flags(eb, item);
 	if (S_ISLNK(rec->imode) &&
 	    flags & (BTRFS_INODE_IMMUTABLE | BTRFS_INODE_APPEND))
@@ -2634,7 +2674,7 @@ static int repair_inode_no_item(struct btrfs_trans_handle *trans,
 	rec->found_dir_item = 1;
 	rec->imode = mode | btrfs_type_to_imode(filetype);
 	rec->nlink = 0;
-	rec->errors &= ~I_ERR_NO_INODE_ITEM;
+	rec->errors &= ~(I_ERR_NO_INODE_ITEM | I_ERR_NO_GC_ITEM);
 	/* Ensure the inode_nlinks repair function will be called */
 	rec->errors |= I_ERR_LINK_COUNT_WRONG;
 out:
@@ -3142,8 +3182,16 @@ static int check_inode_recs(struct btrfs_root *root,
 
 		if (rec->errors & I_ERR_NO_ORPHAN_ITEM) {
 			ret = check_orphan_item(root, rec->ino);
+
+			/*
+			 * If we have an orphan item we need to not have a gc
+			 * item.
+			 */
 			if (ret == 0)
-				rec->errors &= ~I_ERR_NO_ORPHAN_ITEM;
+				rec->errors &= ~(I_ERR_NO_ORPHAN_ITEM |
+						 I_ERR_NO_GC_ITEM);
+
+			check_inode_gc_item(root, rec);
 			if (can_free_inode_rec(rec)) {
 				free_inode_rec(rec);
 				continue;
