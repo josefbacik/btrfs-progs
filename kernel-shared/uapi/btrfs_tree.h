@@ -483,6 +483,11 @@ struct btrfs_header {
 	__u8 level;
 } __attribute__ ((__packed__));
 
+struct btrfs_header_v2 {
+	struct btrfs_header header_v1;
+	__le64 snapshot_id;
+} __attribute__ ((__packed__));
+
 /*
  * This is a very generous portion of the super block, giving us room to
  * translate 14 chunks with 3 stripes each.
@@ -753,6 +758,7 @@ struct btrfs_free_space_header {
 
 #define BTRFS_HEADER_FLAG_WRITTEN	(1ULL << 0)
 #define BTRFS_HEADER_FLAG_RELOC		(1ULL << 1)
+#define BTRFS_HEADER_FLAG_V2		(1ULL << 3)
 
 /* Super block flags */
 /* Errors detected */
