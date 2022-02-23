@@ -368,7 +368,7 @@ static void copy_buffer(struct metadump_struct *md, u8 *dst, struct extent_buffe
 	nritems = btrfs_header_nritems(src);
 
 	if (nritems == 0) {
-		size = sizeof(struct btrfs_header);
+		size = btrfs_item_nr_offset(src, 0);
 		memset(dst + size, 0, src->len - size);
 	} else if (level == 0) {
 		size = btrfs_item_nr_offset(src, 0) +
@@ -377,8 +377,7 @@ static void copy_buffer(struct metadump_struct *md, u8 *dst, struct extent_buffe
 		memset(dst + btrfs_item_nr_offset(src, nritems), 0, size);
 		zero_items(md, dst, src);
 	} else {
-		size = offsetof(struct btrfs_node, ptrs) +
-			sizeof(struct btrfs_key_ptr) * nritems;
+		size = btrfs_node_key_ptr_offset(src, nritems);
 		memset(dst + size, 0, src->len - size);
 	}
 	csum_block(dst, src->len);
