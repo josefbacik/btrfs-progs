@@ -908,10 +908,10 @@ int btrfs_bin_search(struct extent_buffer *eb, int first_slot,
 	}
 
 	if (btrfs_header_level(eb) == 0) {
-		p = offsetof(struct btrfs_leaf, items);
+		p = btrfs_item_nr_offset(eb, 0);
 		item_size = sizeof(struct btrfs_item);
 	} else {
-		p = offsetof(struct btrfs_node, ptrs);
+		p = btrfs_node_key_ptr_offset(eb, 0);
 		item_size = sizeof(struct btrfs_key_ptr);
 	}
 
