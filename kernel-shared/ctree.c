@@ -801,13 +801,13 @@ int btrfs_bin_search(struct extent_buffer *eb, int first_slot,
 {
 	if (btrfs_header_level(eb) == 0)
 		return generic_bin_search(eb,
-					  offsetof(struct btrfs_leaf, items),
+					  btrfs_item_nr_offset(eb, 0),
 					  sizeof(struct btrfs_item),
 					  key, btrfs_header_nritems(eb),
 					  slot);
 	else
 		return generic_bin_search(eb,
-					  offsetof(struct btrfs_node, ptrs),
+					  btrfs_node_key_ptr_offset(eb, 0),
 					  sizeof(struct btrfs_key_ptr),
 					  key, btrfs_header_nritems(eb),
 					  slot);
