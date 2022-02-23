@@ -52,14 +52,22 @@ static u64 reference_root_table[] = {
 	[MKFS_BLOCK_GROUP_TREE]	=	BTRFS_BLOCK_GROUP_TREE_OBJECTID,
 };
 
+static inline void clear_buffer_items(struct extent_buffer *buf,
+				      struct btrfs_mkfs_config *cfg)
+{
+	unsigned long offset = btrfs_item_nr_offset(buf, 0);
+
+	memset_extent_buffer(buf, 0, offset, cfg->nodesize - offset);
+}
+
 static int btrfs_write_empty_tree(int fd, struct btrfs_mkfs_config *cfg,
 				  struct extent_buffer *buf, u64 objectid,
 				  u64 block)
 {
 	int ret;
 
-	memset(buf->data + sizeof(struct btrfs_header), 0,
-	       cfg->nodesize - sizeof(struct btrfs_header));
+
+	clear_buffer_items(buf, cfg);
 	btrfs_set_header_bytenr(buf, block);
 	btrfs_set_header_owner(buf, objectid);
 	btrfs_set_header_nritems(buf, 0);
@@ -88,8 +96,7 @@ static int btrfs_create_tree_root(int fd, struct btrfs_mkfs_config *cfg,
 	bool block_group_tree = !!(cfg->features.compat_ro_flags &
 				   BTRFS_FEATURE_COMPAT_RO_BLOCK_GROUP_TREE);
 
-	memset(buf->data + sizeof(struct btrfs_header), 0,
-		cfg->nodesize - sizeof(struct btrfs_header));
+	clear_buffer_items(buf, cfg);
 	memset(&root_item, 0, sizeof(root_item));
 	memset(&disk_key, 0, sizeof(disk_key));
 
@@ -167,8 +174,7 @@ static int create_free_space_tree(int fd, struct btrfs_mkfs_config *cfg,
 	int nritems = 0;
 	int ret;
 
-	memset(buf->data + sizeof(struct btrfs_header), 0,
-	       cfg->nodesize - sizeof(struct btrfs_header));
+	clear_buffer_items(buf, cfg);
 	itemoff -= sizeof(*info);
 
 	btrfs_set_disk_key_objectid(&disk_key, group_start);
@@ -240,8 +246,7 @@ static int create_block_group_tree(int fd, struct btrfs_mkfs_config *cfg,
 	if (cfg->features.incompat_flags & BTRFS_FEATURE_INCOMPAT_EXTENT_TREE_V2)
 		chunk_objectid = 0;
 
-	memset(buf->data + sizeof(struct btrfs_header), 0,
-		cfg->nodesize - sizeof(struct btrfs_header));
+	clear_buffer_items(buf, cfg);
 	write_block_group_item(buf, 0, bg_offset, bg_size, bg_used,
 			       chunk_objectid, cfg->leaf_data_size -
 			       sizeof(struct btrfs_block_group_item));
@@ -358,8 +363,7 @@ static int fill_extent_tree(int fd, struct btrfs_mkfs_config *cfg,
 	first_free &= ~((u64)cfg->sectorsize - 1);
 
 	/* create the items for the extent tree */
-	memset(buf->data + sizeof(struct btrfs_header), 0,
-		cfg->nodesize - sizeof(struct btrfs_header));
+	clear_buffer_items(buf, cfg);
 	itemoff = cfg->leaf_data_size;
 	for (i = 0; i < blocks_nr; i++) {
 		blk = blocks[i];
@@ -595,8 +599,7 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 	}
 
 	/* create the chunk tree */
-	memset(buf->data + sizeof(struct btrfs_header), 0,
-		cfg->nodesize - sizeof(struct btrfs_header));
+	clear_buffer_items(buf, cfg);
 	nritems = 0;
 	item_size = sizeof(*dev_item);
 	itemoff = cfg->leaf_data_size - item_size;
@@ -684,8 +687,7 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 	}
 
 	/* create the device tree */
-	memset(buf->data + sizeof(struct btrfs_header), 0,
-		cfg->nodesize - sizeof(struct btrfs_header));
+	clear_buffer_items(buf, cfg);
 	nritems = 0;
 	itemoff = cfg->leaf_data_size - sizeof(struct btrfs_dev_extent);
 
