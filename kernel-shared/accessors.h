@@ -526,8 +526,12 @@ static inline void btrfs_set_node_ptr_generation(const struct extent_buffer *eb,
 
 static inline unsigned long btrfs_node_key_ptr_offset(const struct extent_buffer *eb, int nr)
 {
-	return offsetof(struct btrfs_node, ptrs) +
-		sizeof(struct btrfs_key_ptr) * nr;
+	unsigned long offset;
+	if (btrfs_header_flag(eb, BTRFS_HEADER_FLAG_V2))
+		offset = offsetof(struct btrfs_node_v2, ptrs);
+	else
+		offset = offsetof(struct btrfs_node, ptrs);
+	return offset + sizeof(struct btrfs_key_ptr) * nr;
 }
 
 void btrfs_node_key(const struct extent_buffer *eb,
@@ -551,8 +555,12 @@ BTRFS_SETGET_STACK_FUNCS(stack_item_size, struct btrfs_item, size, 32);
 
 static inline unsigned long btrfs_item_nr_offset(const struct extent_buffer *eb, int nr)
 {
-	return offsetof(struct btrfs_leaf, items) +
-		sizeof(struct btrfs_item) * nr;
+	unsigned long offset;
+	if (btrfs_header_flag(eb, BTRFS_HEADER_FLAG_V2))
+		offset = offsetof(struct btrfs_leaf_v2, items);
+	else
+		offset = offsetof(struct btrfs_leaf, items);
+	return offset + sizeof(struct btrfs_item) * nr;
 }
 
 static inline struct btrfs_item *btrfs_item_nr(const struct extent_buffer *eb, int nr)

@@ -556,6 +556,11 @@ struct btrfs_leaf {
 	struct btrfs_item items[];
 } __attribute__ ((__packed__));
 
+struct btrfs_leaf_v2 {
+	struct btrfs_header_v2 header;
+	struct btrfs_item items[];
+} __attribute__ ((__packed__));
+
 /*
  * All non-leaf blocks are nodes, they hold only keys and pointers to other
  * blocks.
@@ -568,6 +573,11 @@ struct btrfs_key_ptr {
 
 struct btrfs_node {
 	struct btrfs_header header;
+	struct btrfs_key_ptr ptrs[];
+} __attribute__ ((__packed__));
+
+struct btrfs_node_v2 {
+	struct btrfs_header_v2 header;
 	struct btrfs_key_ptr ptrs[];
 } __attribute__ ((__packed__));
 
