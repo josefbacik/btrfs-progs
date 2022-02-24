@@ -69,8 +69,10 @@ static inline unsigned long btrfs_chunk_item_size(int num_stripes)
  */
 #define BTRFS_SUPER_FLAG_CHANGING_BG_TREE	(1ULL << 38)
 
-static inline u32 __BTRFS_LEAF_DATA_SIZE(u32 nodesize)
+static inline u32 __BTRFS_LEAF_DATA_SIZE(u32 nodesize, bool v2)
 {
+	if (v2)
+		return nodesize - sizeof(struct btrfs_header_v2);
 	return nodesize - sizeof(struct btrfs_header);
 }
 

@@ -1596,15 +1596,20 @@ static struct btrfs_fs_info *__open_ctree_fd(int fp, struct open_ctree_args *oca
 	fs_info->stripesize = btrfs_super_stripesize(disk_super);
 	fs_info->csum_type = btrfs_super_csum_type(disk_super);
 	fs_info->csum_size = btrfs_super_csum_size(disk_super);
-	fs_info->leaf_data_size = __BTRFS_LEAF_DATA_SIZE(fs_info->nodesize);
 
 	ret = btrfs_check_fs_compatibility(fs_info->super_copy, flags);
 	if (ret)
 		goto out_devices;
 
-	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2))
+	if (btrfs_fs_incompat(fs_info, EXTENT_TREE_V2)) {
+		fs_info->leaf_data_size =
+			__BTRFS_LEAF_DATA_SIZE(fs_info->nodesize, true);
 		fs_info->nr_global_roots =
 			btrfs_super_nr_global_roots(fs_info->super_copy);
+	} else {
+		fs_info->leaf_data_size =
+			__BTRFS_LEAF_DATA_SIZE(fs_info->nodesize, false);
+	}
 
 	/*
 	 * fs_info->zone_size (and zoned) are not known before reading the

@@ -1246,7 +1246,7 @@ static int do_convert(const char *devname, u32 convert_flags, u32 nodesize,
 	mkfs_cfg.sectorsize = blocksize;
 	mkfs_cfg.stripesize = blocksize;
 	memcpy(&mkfs_cfg.features, features, sizeof(struct btrfs_mkfs_features));
-	mkfs_cfg.leaf_data_size = __BTRFS_LEAF_DATA_SIZE(nodesize);
+	mkfs_cfg.leaf_data_size = __BTRFS_LEAF_DATA_SIZE(nodesize, false);
 
 	printf("Create initial btrfs filesystem\n");
 	ret = make_convert_btrfs(fd, &mkfs_cfg, &cctx);
