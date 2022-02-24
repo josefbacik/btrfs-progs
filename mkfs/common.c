@@ -569,6 +569,12 @@ int make_btrfs(int fd, struct btrfs_mkfs_config *cfg)
 	/* create the tree of root objects */
 	memset(buf->data, 0, cfg->nodesize);
 	buf->len = cfg->nodesize;
+
+	if (extent_tree_v2) {
+		btrfs_set_header_snapshot_id(buf, 0);
+		btrfs_set_header_flag(buf, BTRFS_HEADER_FLAG_V2);
+	}
+
 	btrfs_set_header_bytenr(buf, cfg->blocks[MKFS_ROOT_TREE]);
 	btrfs_set_header_generation(buf, 1);
 	btrfs_set_header_backref_rev(buf, BTRFS_MIXED_BACKREF_REV);
