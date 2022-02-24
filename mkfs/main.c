@@ -1095,6 +1095,7 @@ int BOX_MAIN(mkfs)(int argc, char **argv)
 	char *label = NULL;
 	int nr_global_roots = sysconf(_SC_NPROCESSORS_ONLN);
 	char *source_dir = NULL;
+	bool extent_tree_v2 = false;
 
 	cpu_detect_flags();
 	hash_init_accel();
@@ -1288,6 +1289,8 @@ int BOX_MAIN(mkfs)(int argc, char **argv)
 		usage(&mkfs_cmd, 1);
 
 	opt_zoned = !!(features.incompat_flags & BTRFS_FEATURE_INCOMPAT_ZONED);
+	extent_tree_v2 = !!(features.incompat_flags &
+			    BTRFS_FEATURE_INCOMPAT_EXTENT_TREE_V2);
 
 	if (source_dir && device_count > 1) {
 		error("the option -r is limited to a single device");
@@ -1397,7 +1400,7 @@ int BOX_MAIN(mkfs)(int argc, char **argv)
 	}
 
 	/* Extent tree v2 comes with a set of mandatory features. */
-	if (features.incompat_flags & BTRFS_FEATURE_INCOMPAT_EXTENT_TREE_V2) {
+	if (extent_tree_v2) {
 		features.incompat_flags |= BTRFS_FEATURE_INCOMPAT_NO_HOLES;
 		features.compat_ro_flags |=
 			BTRFS_FEATURE_COMPAT_RO_FREE_SPACE_TREE |
@@ -1626,7 +1629,7 @@ int BOX_MAIN(mkfs)(int argc, char **argv)
 	mkfs_cfg.stripesize = stripesize;
 	mkfs_cfg.features = features;
 	mkfs_cfg.csum_type = csum_type;
-	mkfs_cfg.leaf_data_size = __BTRFS_LEAF_DATA_SIZE(nodesize);
+	mkfs_cfg.leaf_data_size = __BTRFS_LEAF_DATA_SIZE(nodesize, extent_tree_v2);
 	if (opt_zoned)
 		mkfs_cfg.zone_size = zone_size(file);
 	else
@@ -1668,7 +1671,7 @@ int BOX_MAIN(mkfs)(int argc, char **argv)
 		goto error;
 	}
 
-	if (features.incompat_flags & BTRFS_FEATURE_INCOMPAT_EXTENT_TREE_V2) {
+	if (extent_tree_v2) {
 		ret = create_global_roots(trans, nr_global_roots);
 		if (ret) {
 			error("failed to create global roots: %d", ret);
