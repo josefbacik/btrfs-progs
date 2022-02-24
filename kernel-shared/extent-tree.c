@@ -2622,7 +2622,13 @@ struct extent_buffer *btrfs_alloc_tree_block(struct btrfs_trans_handle *trans,
 		return ERR_PTR(-ENOMEM);
 	}
 	btrfs_set_buffer_uptodate(buf);
-	memset_extent_buffer(buf, 0, 0, sizeof(struct btrfs_header));
+	if (btrfs_fs_incompat(root->fs_info, EXTENT_TREE_V2)) {
+		memset_extent_buffer(buf, 0, 0, sizeof(struct btrfs_header_v2));
+		btrfs_set_header_snapshot_id(buf, 0);
+		btrfs_set_header_flag(buf, BTRFS_HEADER_FLAG_V2);
+	} else {
+		memset_extent_buffer(buf, 0, 0, sizeof(struct btrfs_header));
+	}
 	btrfs_set_header_level(buf, level);
 	btrfs_set_header_bytenr(buf, buf->start);
 	btrfs_set_header_generation(buf, trans->transid);
