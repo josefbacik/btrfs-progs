@@ -46,14 +46,13 @@
 #define BTRFS_BAD_NRITEMS		(-4)
 
 /* Calculate max possible nritems for a leaf/node */
-static u32 max_nritems(u8 level, u32 nodesize)
+static u32 max_nritems(struct btrfs_fs_info *fs_info, u8 level)
 {
 
 	if (level == 0)
-		return ((nodesize - sizeof(struct btrfs_header)) /
-			sizeof(struct btrfs_item));
-	return ((nodesize - sizeof(struct btrfs_header)) /
-		sizeof(struct btrfs_key_ptr));
+		return BTRFS_LEAF_DATA_SIZE(fs_info) /
+			sizeof(struct btrfs_item);
+	return BTRFS_NODEPTRS_PER_BLOCK(fs_info);
 }
 
 static int check_tree_block(struct btrfs_fs_info *fs_info,
@@ -61,7 +60,6 @@ static int check_tree_block(struct btrfs_fs_info *fs_info,
 {
 
 	struct btrfs_fs_devices *fs_devices = fs_info->fs_devices;
-	u32 nodesize = fs_info->nodesize;
 	bool fsid_match = false;
 	int ret = BTRFS_BAD_FSID;
 
@@ -69,8 +67,8 @@ static int check_tree_block(struct btrfs_fs_info *fs_info,
 		return BTRFS_BAD_BYTENR;
 	if (btrfs_header_level(buf) >= BTRFS_MAX_LEVEL)
 		return BTRFS_BAD_LEVEL;
-	if (btrfs_header_nritems(buf) > max_nritems(btrfs_header_level(buf),
-						    nodesize))
+	if (btrfs_header_nritems(buf) > max_nritems(fs_info,
+						    btrfs_header_level(buf)))
 		return BTRFS_BAD_NRITEMS;
 
 	/* Only leaf can be empty */
