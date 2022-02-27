@@ -801,6 +801,8 @@ BTRFS_SETGET_STACK_FUNCS(root_ctransid, struct btrfs_root_item, ctransid, 64);
 BTRFS_SETGET_STACK_FUNCS(root_otransid, struct btrfs_root_item, otransid, 64);
 BTRFS_SETGET_STACK_FUNCS(root_stransid, struct btrfs_root_item, stransid, 64);
 BTRFS_SETGET_STACK_FUNCS(root_rtransid, struct btrfs_root_item, rtransid, 64);
+BTRFS_SETGET_STACK_FUNCS(root_snapshot_id, struct btrfs_root_item,
+			 snapshot_id, 64);
 
 /* struct btrfs_root_backup */
 BTRFS_SETGET_STACK_FUNCS(backup_tree_root, struct btrfs_root_backup,

@@ -2423,6 +2423,9 @@ struct btrfs_root *btrfs_create_tree(struct btrfs_trans_handle *trans,
 	memset(root->root_item.uuid, 0, BTRFS_UUID_SIZE);
 	root->root_item.drop_level = 0;
 
+	/* This is safe to do on both versions since we used a reserved area. */
+	btrfs_set_root_snapshot_id(&root->root_item, 0);
+
 	ret = btrfs_insert_root(trans, tree_root, &root->root_key,
 				&root->root_item);
 	if (ret)
