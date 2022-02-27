@@ -645,6 +645,17 @@ static noinline int __btrfs_cow_block(struct btrfs_trans_handle *trans,
 	return 0;
 }
 
+static inline int should_cow_block_v2(struct btrfs_root *root,
+				      struct extent_buffer *buf)
+{
+	if (!btrfs_header_flag(buf, BTRFS_HEADER_FLAG_V2))
+		return 0;
+	if (btrfs_root_snapshot_id(&root->root_item) >
+	    btrfs_header_snapshot_id(buf))
+		return 1;
+	return 0;
+}
+
 static inline int should_cow_block(struct btrfs_trans_handle *trans,
 				   struct btrfs_root *root,
 				   struct extent_buffer *buf)
@@ -652,7 +663,8 @@ static inline int should_cow_block(struct btrfs_trans_handle *trans,
 	if (btrfs_header_generation(buf) == trans->transid &&
 	    !btrfs_header_flag(buf, BTRFS_HEADER_FLAG_WRITTEN) &&
 	    !(root->root_key.objectid != BTRFS_TREE_RELOC_OBJECTID &&
-	      btrfs_header_flag(buf, BTRFS_HEADER_FLAG_RELOC)))
+	      btrfs_header_flag(buf, BTRFS_HEADER_FLAG_RELOC)) &&
+	    !should_cow_block_v2(root, buf))
 		return 0;
 	return 1;
 }
