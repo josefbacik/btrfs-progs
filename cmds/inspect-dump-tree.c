@@ -331,7 +331,8 @@ static int cmd_inspect_dump_tree(const struct cmd_struct *cmd,
 	 * to inspect fs with corrupted extent tree blocks, and show as many good
 	 * tree blocks as possible.
 	 */
-	open_ctree_flags = OPEN_CTREE_PARTIAL | OPEN_CTREE_NO_BLOCK_GROUPS;
+	open_ctree_flags = OPEN_CTREE_PARTIAL | OPEN_CTREE_NO_BLOCK_GROUPS |
+		OPEN_CTREE_ALLOW_TRANSID_MISMATCH;
 	cache_tree_init(&block_root);
 	optind = 0;
 	while (1) {
