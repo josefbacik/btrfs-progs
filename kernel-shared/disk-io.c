@@ -607,8 +607,10 @@ static int find_and_setup_root(struct btrfs_root *tree_root,
 	btrfs_setup_root(root, fs_info, objectid);
 	ret = btrfs_find_last_root(tree_root, objectid,
 				   &root->root_item, &root->root_key);
-	if (ret)
+	if (ret) {
+		fprintf(stderr, "Couldn't find the last root for %llu\n", objectid);
 		return ret;
+	}
 
 	return read_root_node(fs_info, root,
 			      btrfs_root_bytenr(&root->root_item),
