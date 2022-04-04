@@ -332,7 +332,7 @@ static int cmd_inspect_dump_tree(const struct cmd_struct *cmd,
 	 * tree blocks as possible.
 	 */
 	open_ctree_flags = OPEN_CTREE_PARTIAL | OPEN_CTREE_NO_BLOCK_GROUPS |
-		OPEN_CTREE_ALLOW_TRANSID_MISMATCH;
+		OPEN_CTREE_ALLOW_TRANSID_MISMATCH | __OPEN_CTREE_RETURN_CHUNK_ROOT;
 	cache_tree_init(&block_root);
 	optind = 0;
 	while (1) {
