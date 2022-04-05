@@ -105,12 +105,15 @@ static bool try_read_block(struct extent_buffer *eb, int slot)
 	struct extent_buffer *tmp;
 	u64 bytenr = btrfs_node_blockptr(eb, slot);
 	u64 gen = btrfs_node_ptr_generation(eb, slot);
+	bool ret = true;
 
 	tmp = read_tree_block(eb->fs_info, bytenr, gen);
 	if (!tmp || IS_ERR(tmp))
 		return false;
+	if (btrfs_header_owner(eb) != btrfs_header_owner(tmp))
+		ret = false;
 	free_extent_buffer(tmp);
-	return true;
+	return ret;
 }
 
 static bool try_read_root_item(struct extent_buffer *eb, int slot)
@@ -119,6 +122,7 @@ static bool try_read_root_item(struct extent_buffer *eb, int slot)
 	struct extent_buffer *tmp;
 	struct btrfs_key key;
 	u64 bytenr, gen;
+	bool ret = true;
 
 	btrfs_item_key_to_cpu(eb, &key, slot);
 	if (key.type != BTRFS_ROOT_ITEM_KEY)
@@ -131,8 +135,10 @@ static bool try_read_root_item(struct extent_buffer *eb, int slot)
 	tmp = read_tree_block(eb->fs_info, bytenr, gen);
 	if (!tmp || IS_ERR(tmp))
 		return false;
+	if (key.objectid != btrfs_header_owner(tmp))
+		ret = false;
 	free_extent_buffer(tmp);
-	return true;
+	return ret;
 }
 
 static int count_bad_items(struct extent_buffer *eb)
