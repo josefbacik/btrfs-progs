@@ -296,7 +296,6 @@ next:
 static int cmd_inspect_dump_tree(const struct cmd_struct *cmd,
 				 int argc, char **argv)
 {
-	struct btrfs_root *root;
 	struct btrfs_fs_info *info;
 	struct btrfs_path path;
 	struct btrfs_key key;
@@ -487,15 +486,8 @@ static int cmd_inspect_dump_tree(const struct cmd_struct *cmd,
 	print_mode = follow | traverse | csum_mode;
 
 	if (!cache_tree_empty(&block_root)) {
-		root = info->chunk_root;
 		ret = dump_print_tree_blocks(info, &block_root, print_mode);
 		goto close_root;
-	}
-
-	root = info->fs_root;
-	if (!root) {
-		error("unable to open %s", argv[optind]);
-		goto out;
 	}
 
 	if (!(extent_only || uuid_tree_only || tree_id)) {
@@ -751,7 +743,7 @@ no_node:
 	uuid_unparse(info->super_copy->fsid, uuidbuf);
 	printf("uuid %s\n", uuidbuf);
 close_root:
-	ret = close_ctree(root);
+	ret = close_ctree(info->tree_root);
 out:
 	return !!ret;
 }
