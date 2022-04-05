@@ -266,10 +266,13 @@ static int verify_parent_transid(struct extent_io_tree *io_tree,
 		ret = 0;
 		goto out;
 	}
-	printk("parent transid verify failed on %llu wanted %llu found %llu\n",
-	       (unsigned long long)eb->start,
-	       (unsigned long long)parent_transid,
-	       (unsigned long long)btrfs_header_generation(eb));
+
+	if (eb->fs_info && !eb->fs_info->suppress_check_block_errors) {
+		printk("parent transid verify failed on %llu wanted %llu found %llu\n",
+		       (unsigned long long)eb->start,
+		       (unsigned long long)parent_transid,
+		       (unsigned long long)btrfs_header_generation(eb));
+	}
 	if (ignore) {
 		eb->flags |= EXTENT_BAD_TRANSID;
 		printk("Ignoring transid failure\n");

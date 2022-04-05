@@ -59,6 +59,8 @@
 struct btrfs_find_root_gen_cache {
 	struct cache_extent cache;	/* cache->start is generation */
 	u64 highest_level;
+	int nritems;
+	int bad_items;
 	struct cache_tree eb_tree;
 };
 
@@ -96,6 +98,63 @@ static void btrfs_find_root_free(struct cache_tree *result)
 		free(gen_cache);
 		cache = first_cache_extent(result);
 	}
+}
+
+static bool try_read_block(struct extent_buffer *eb, int slot)
+{
+	struct extent_buffer *tmp;
+	u64 bytenr = btrfs_node_blockptr(eb, slot);
+	u64 gen = btrfs_node_ptr_generation(eb, slot);
+
+	tmp = read_tree_block(eb->fs_info, bytenr, gen);
+	if (!tmp || IS_ERR(tmp))
+		return false;
+	free_extent_buffer(tmp);
+	return true;
+}
+
+static bool try_read_root_item(struct extent_buffer *eb, int slot)
+{
+	struct btrfs_root_item *ri;
+	struct extent_buffer *tmp;
+	struct btrfs_key key;
+	u64 bytenr, gen;
+
+	btrfs_item_key_to_cpu(eb, &key, slot);
+	if (key.type != BTRFS_ROOT_ITEM_KEY)
+		return true;
+
+	ri = btrfs_item_ptr(eb, slot, struct btrfs_root_item);
+	bytenr = btrfs_disk_root_bytenr(eb, ri);
+	gen = btrfs_disk_root_generation(eb, ri);
+
+	tmp = read_tree_block(eb->fs_info, bytenr, gen);
+	if (!tmp || IS_ERR(tmp))
+		return false;
+	free_extent_buffer(tmp);
+	return true;
+}
+
+static int count_bad_items(struct extent_buffer *eb)
+{
+	struct btrfs_fs_info *fs_info = eb->fs_info;
+	int bad_count = 0;
+	int suppress_errors = 0;
+	int i;
+
+	suppress_errors = fs_info->suppress_check_block_errors;
+	fs_info->suppress_check_block_errors = 1;
+	for (i = 0; i < btrfs_header_nritems(eb); i++) {
+		if (btrfs_header_level(eb)) {
+			if (!try_read_block(eb, i))
+				bad_count++;
+		} else {
+			if (!try_read_root_item(eb, i))
+				bad_count++;
+		}
+	}
+	fs_info->suppress_check_block_errors = suppress_errors;
+	return bad_count;
 }
 
 /* Return value is the same as btrfs_find_root_search(). */
@@ -140,6 +199,9 @@ static int add_eb_to_result(struct extent_buffer *eb,
 	}
 	gen_cache = container_of(cache, struct btrfs_find_root_gen_cache,
 				 cache);
+
+	gen_cache->nritems = btrfs_header_nritems(eb);
+	gen_cache->bad_items = count_bad_items(eb);
 
 	/* Higher level, clean tree and insert the new one */
 	if (level > gen_cache->highest_level) {
@@ -274,7 +336,8 @@ static void get_root_gen_and_level(u64 objectid, struct btrfs_fs_info *fs_info,
 }
 
 static void print_one_result(struct cache_extent *tree_block,
-			     u8 level, u64 generation,
+			     struct btrfs_find_root_gen_cache *gen_cache,
+			     u64 generation,
 			     struct btrfs_find_root_filter *filter)
 {
 	int unsure = 0;
@@ -282,10 +345,15 @@ static void print_one_result(struct cache_extent *tree_block,
 	if (filter->match_gen == (u64)-1 || filter->match_level == (u8)-1)
 		unsure = 1;
 	printf("Well block %llu(gen: %llu level: %u) seems good, ",
-	       tree_block->start, generation, level);
+	       tree_block->start, generation, (unsigned)gen_cache->highest_level);
+	if (gen_cache->bad_items)
+		printf("but has %d items and %d bad items ",
+		       gen_cache->nritems, gen_cache->bad_items);
+	else
+		printf("AND HAS NO BAD ITEMS ");
 	if (unsure)
 		printf("but we are unsure about the correct generation/level\n");
-	else if (level == filter->match_level &&
+	else if (gen_cache->highest_level == filter->match_level &&
 		 generation == filter->match_gen)
 		printf("and it matches superblock\n");
 	else
@@ -315,7 +383,7 @@ static void print_find_root_result(struct cache_tree *result,
 			continue;
 		for (tree_block = last_cache_extent(&gen_cache->eb_tree);
 		     tree_block; tree_block = prev_cache_extent(tree_block))
-			print_one_result(tree_block, level, generation, filter);
+			print_one_result(tree_block, gen_cache, generation, filter);
 	}
 }
 
@@ -400,8 +468,17 @@ int main(int argc, char **argv)
 		goto out;
 	}
 	if (ret > 0) {
-		printf("Found tree root at %llu gen %llu level %u\n",
+		struct btrfs_find_root_gen_cache *gen_cache;
+
+		gen_cache = container_of(found,struct btrfs_find_root_gen_cache,
+					 cache);
+		printf("Found tree root at %llu gen %llu level %u",
 		       found->start, filter.match_gen, filter.match_level);
+		if (gen_cache->bad_items)
+			printf(" with %d items and %d bad items\n",
+			       gen_cache->nritems, gen_cache->bad_items);
+		else
+			printf("\n");
 		ret = 0;
 	}
 	print_find_root_result(&result, &filter);
