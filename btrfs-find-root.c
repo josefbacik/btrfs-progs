@@ -106,6 +106,7 @@ static struct extent_buffer *try_read_block(struct extent_buffer *eb, int slot)
 	u64 bytenr = btrfs_node_blockptr(eb, slot);
 	u64 gen = btrfs_node_ptr_generation(eb, slot);
 
+	printf("checking block %llu\n", eb->start);
 	tmp = read_tree_block(eb->fs_info, bytenr, gen);
 	if (!tmp || IS_ERR(tmp))
 		return NULL;
@@ -132,6 +133,7 @@ static bool try_read_root_item(struct extent_buffer *eb, int slot)
 	if (key.type != BTRFS_ROOT_ITEM_KEY)
 		return true;
 
+	printf("checking root item %llu\n", key.objectid);
 	ri = btrfs_item_ptr(eb, slot, struct btrfs_root_item);
 	bytenr = btrfs_disk_root_bytenr(eb, ri);
 	gen = btrfs_disk_root_generation(eb, ri);
@@ -164,11 +166,14 @@ static int count_bad_items(struct extent_buffer *eb)
 				bad_count += count_bad_items(tmp);
 				free_extent_buffer(tmp);
 			} else {
+				printf("bad block\n");
 				bad_count++;
 			}
 		} else {
-			if (!try_read_root_item(eb, i))
+			if (!try_read_root_item(eb, i)) {
+				printf("bad root\n");
 				bad_count++;
+			}
 		}
 	}
 	fs_info->suppress_check_block_errors = suppress_errors;
@@ -354,6 +359,7 @@ static void get_root_gen_and_level(u64 objectid, struct btrfs_fs_info *fs_info,
 	}
 }
 
+#if 0
 static void print_one_result(struct cache_extent *tree_block,
 			     struct btrfs_find_root_gen_cache *gen_cache,
 			     u64 generation,
@@ -405,6 +411,7 @@ static void print_find_root_result(struct cache_tree *result,
 			print_one_result(tree_block, gen_cache, generation, filter);
 	}
 }
+#endif
 
 static const char * btrfs_find_root_usage[] = {
 	"btrfs-find-usage [options] <device>",
