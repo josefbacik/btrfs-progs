@@ -1408,7 +1408,7 @@ static struct btrfs_fs_info *__open_ctree_fd(int fp, struct open_ctree_flags *oc
 	int ret;
 	int oflags;
 	unsigned sbflags = SBREAD_DEFAULT;
-	unsigned flags = ocf->flags;
+	const unsigned flags = ocf->flags;
 	u64 sb_bytenr = ocf->sb_bytenr;
 
 	if (sb_bytenr == 0)
@@ -1543,9 +1543,9 @@ static struct btrfs_fs_info *__open_ctree_fd(int fp, struct open_ctree_flags *oc
 			   BTRFS_UUID_SIZE);
 
 	ret = btrfs_setup_all_roots(fs_info, ocf->root_tree_bytenr, flags);
-	if (ret && !(flags & __OPEN_CTREE_RETURN_CHUNK_ROOT) &&
-	    !fs_info->ignore_chunk_tree_error)
-		goto out_chunk;
+//	if (ret && !(flags & __OPEN_CTREE_RETURN_CHUNK_ROOT) &&
+//	    !fs_info->ignore_chunk_tree_error)
+//		goto out_chunk;
 
 	return fs_info;
 
