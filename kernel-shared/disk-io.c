@@ -275,7 +275,7 @@ static int verify_parent_transid(struct extent_io_tree *io_tree,
 	}
 	if (ignore) {
 		eb->flags |= EXTENT_BAD_TRANSID;
-		if (eb->fs_info && eb->fs_info->suppress_check_block_errrs)
+		if (eb->fs_info && eb->fs_info->suppress_check_block_errors)
 			printk("Ignoring transid failure\n");
 		return 0;
 	}
