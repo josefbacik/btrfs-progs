@@ -140,10 +140,13 @@ static int count_bad_items(struct extent_buffer *eb)
 	struct btrfs_fs_info *fs_info = eb->fs_info;
 	int bad_count = 0;
 	int suppress_errors = 0;
+	int allow_transid_mismatch = 0;
 	int i;
 
 	suppress_errors = fs_info->suppress_check_block_errors;
+	allow_transid_mismatch = fs_info->allow_transid_mismatch;
 	fs_info->suppress_check_block_errors = 1;
+	fs_info->allow_transid_mismatch = 0;
 	for (i = 0; i < btrfs_header_nritems(eb); i++) {
 		if (btrfs_header_level(eb)) {
 			if (!try_read_block(eb, i))
@@ -154,6 +157,7 @@ static int count_bad_items(struct extent_buffer *eb)
 		}
 	}
 	fs_info->suppress_check_block_errors = suppress_errors;
+	fs_info->allow_transid_mismatch = allow_transid_mismatch;
 	return bad_count;
 }
 
