@@ -100,20 +100,24 @@ static void btrfs_find_root_free(struct cache_tree *result)
 	}
 }
 
-static bool try_read_block(struct extent_buffer *eb, int slot)
+static struct extent_buffer *try_read_block(struct extent_buffer *eb, int slot)
 {
 	struct extent_buffer *tmp;
 	u64 bytenr = btrfs_node_blockptr(eb, slot);
 	u64 gen = btrfs_node_ptr_generation(eb, slot);
-	bool ret = true;
 
 	tmp = read_tree_block(eb->fs_info, bytenr, gen);
 	if (!tmp || IS_ERR(tmp))
-		return false;
-	if (btrfs_header_owner(eb) != btrfs_header_owner(tmp))
-		ret = false;
-	free_extent_buffer(tmp);
-	return ret;
+		return NULL;
+	if (btrfs_header_owner(eb) != btrfs_header_owner(tmp)) {
+		free_extent_buffer(tmp);
+		return NULL;
+	}
+	if (btrfs_header_level(tmp) != (btrfs_header_level(eb) - 1)) {
+		free_extent_buffer(tmp);
+		return NULL;
+	}
+	return tmp;
 }
 
 static bool try_read_root_item(struct extent_buffer *eb, int slot)
@@ -155,7 +159,10 @@ static int count_bad_items(struct extent_buffer *eb)
 	fs_info->allow_transid_mismatch = 0;
 	for (i = 0; i < btrfs_header_nritems(eb); i++) {
 		if (btrfs_header_level(eb)) {
-			if (!try_read_block(eb, i))
+			struct extent_buffer *tmp = try_read_block(eb, i);
+			if (tmp)
+				bad_count += count_bad_items(eb);
+			else
 				bad_count++;
 		} else {
 			if (!try_read_root_item(eb, i))
