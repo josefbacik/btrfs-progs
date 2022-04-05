@@ -483,7 +483,7 @@ int main(int argc, char **argv)
 			printf("\n");
 		ret = 0;
 	}
-	print_find_root_result(&result, &filter);
+//	print_find_root_result(&result, &filter);
 out:
 	btrfs_find_root_free(&result);
 	close_ctree_fs_info(fs_info);
