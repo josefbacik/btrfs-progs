@@ -1542,11 +1542,13 @@ static struct btrfs_fs_info *__open_ctree_fd(int fp, struct open_ctree_flags *oc
 			   btrfs_header_chunk_tree_uuid(eb),
 			   BTRFS_UUID_SIZE);
 
+	fprintf(stderr, "FS_INFO IS %p\n", fs_info);
 	ret = btrfs_setup_all_roots(fs_info, ocf->root_tree_bytenr, flags);
 //	if (ret && !(flags & __OPEN_CTREE_RETURN_CHUNK_ROOT) &&
 //	    !fs_info->ignore_chunk_tree_error)
 //		goto out_chunk;
 
+	fprintf(stderr, "FS_INFO AFTER IS %p\n", fs_info);
 	return fs_info;
 
 out_chunk:
@@ -1556,6 +1558,7 @@ out_devices:
 	btrfs_close_devices(fs_devices);
 out:
 	btrfs_free_fs_info(fs_info);
+	fprintf(stderr, "WTF???\n");
 	return NULL;
 }
 
