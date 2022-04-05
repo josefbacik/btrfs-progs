@@ -160,10 +160,12 @@ static int count_bad_items(struct extent_buffer *eb)
 	for (i = 0; i < btrfs_header_nritems(eb); i++) {
 		if (btrfs_header_level(eb)) {
 			struct extent_buffer *tmp = try_read_block(eb, i);
-			if (tmp)
-				bad_count += count_bad_items(eb);
-			else
+			if (tmp) {
+				bad_count += count_bad_items(tmp);
+				free_extent_buffer(tmp);
+			} else {
 				bad_count++;
+			}
 		} else {
 			if (!try_read_root_item(eb, i))
 				bad_count++;
