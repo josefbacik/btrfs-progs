@@ -587,7 +587,8 @@ int main(int argc, char **argv)
 
 	ocf.filename = argv[optind];
 	ocf.flags = OPEN_CTREE_PARTIAL | OPEN_CTREE_NO_BLOCK_GROUPS |
-		OPEN_CTREE_ALLOW_TRANSID_MISMATCH | __OPEN_CTREE_RETURN_CHUNK_ROOT;
+		OPEN_CTREE_ALLOW_TRANSID_MISMATCH | __OPEN_CTREE_RETURN_CHUNK_ROOT |
+		OPEN_CTREE_WRITES;
 //	ocf.flags = OPEN_CTREE_CHUNK_ROOT_ONLY | OPEN_CTREE_IGNORE_CHUNK_TREE_ERROR;
 	fs_info = open_ctree_fs_info(&ocf);
 	if (!fs_info) {
