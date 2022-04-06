@@ -84,6 +84,82 @@ int btrfs_find_root_search(struct btrfs_fs_info *fs_info,
 			   struct cache_tree *result,
 			   struct cache_extent **match);
 
+static struct extent_buffer *find_best_block(struct btrfs_fs_info *fs_info,
+					     struct btrfs_key *first_key,
+					     struct btrfs_key *last_key,
+					     u64 gen, u64 owner, int level)
+{
+	struct extent_buffer *eb, *ret_eb = NULL;
+	struct btrfs_key key;
+	u64 chunk_offset = 0;
+	u64 chunk_size = 0;
+	u64 offset = 0;
+	u32 nodesize = btrfs_super_nodesize(fs_info->super_copy);
+	int ret = 0;
+
+	fs_info->suppress_check_block_errors = 1;
+	while (1) {
+		if (owner != BTRFS_CHUNK_TREE_OBJECTID)
+			ret = btrfs_next_bg_metadata(fs_info,
+						  &chunk_offset,
+						  &chunk_size);
+		else
+			ret = btrfs_next_bg_system(fs_info,
+						&chunk_offset,
+						&chunk_size);
+		if (ret) {
+			if (ret == -ENOENT)
+				ret = 0;
+			break;
+		}
+		for (offset = chunk_offset;
+		     offset < chunk_offset + chunk_size;
+		     offset += nodesize) {
+			eb = read_tree_block(fs_info, offset, 0);
+			if (!eb || IS_ERR(eb))
+				continue;
+
+			if (btrfs_header_owner(eb) != owner) {
+				free_extent_buffer(eb);
+				continue;
+			}
+
+			if (btrfs_header_level(eb) != level) {
+				free_extent_buffer(eb);
+				continue;
+			}
+
+			if (btrfs_header_level(eb))
+				btrfs_node_key_to_cpu(eb, &key, 0);
+			else
+				btrfs_item_key_to_cpu(eb, &key, 0);
+			if (first_key && btrfs_comp_cpu_keys(&key, first_key)) {
+				free_extent_buffer(eb);
+				continue;
+			}
+
+			if (last_key) {
+				btrfs_item_key_to_cpu(eb, &key,
+						      btrfs_header_nritems(eb) - 1);
+				if (btrfs_comp_cpu_keys(&key, last_key) > 0) {
+					free_extent_buffer(eb);
+					continue;
+				}
+			}
+			if (!ret_eb ||
+			    btrfs_header_generation(eb) > btrfs_header_generation(ret_eb)) {
+				if (ret_eb)
+					free_extent_buffer(ret_eb);
+				ret_eb = eb;
+			} else {
+				free_extent_buffer(eb);
+			}
+		}
+	}
+
+	return ret_eb;
+}
+
 static void btrfs_find_root_free(struct cache_tree *result)
 {
 	struct btrfs_find_root_gen_cache *gen_cache;
@@ -103,20 +179,39 @@ static void btrfs_find_root_free(struct cache_tree *result)
 static struct extent_buffer *try_read_block(struct extent_buffer *eb, int slot)
 {
 	struct extent_buffer *tmp;
+	struct btrfs_key key = {}, next_key = {};
 	u64 bytenr = btrfs_node_blockptr(eb, slot);
 	u64 gen = btrfs_node_ptr_generation(eb, slot);
 
-	printf("checking block %llu\n", eb->start);
-	tmp = read_tree_block(eb->fs_info, bytenr, gen);
-	if (!tmp || IS_ERR(tmp))
-		return NULL;
-	if (btrfs_header_owner(eb) != btrfs_header_owner(tmp)) {
-		free_extent_buffer(tmp);
-		return NULL;
-	}
-	if (btrfs_header_level(tmp) != (btrfs_header_level(eb) - 1)) {
-		free_extent_buffer(tmp);
-		return NULL;
+	if (btrfs_header_level(eb) == 0)
+		return 0;
+
+	btrfs_node_key_to_cpu(eb, &key, slot);
+	if (slot < btrfs_header_nritems(eb) - 1)
+		btrfs_node_key_to_cpu(eb, &next_key, slot + 1);
+
+	tmp = read_tree_block(eb->fs_info, bytenr, 0);
+	if (!tmp || IS_ERR(tmp) ||
+	    btrfs_header_generation(tmp) != gen ||
+	    btrfs_header_level(tmp) != (btrfs_header_level(eb) - 1) ||
+	    btrfs_header_owner(eb) != btrfs_header_owner(tmp)) {
+		if (tmp && !IS_ERR(tmp))
+			free_extent_buffer(tmp);
+		tmp = find_best_block(eb->fs_info,
+				      (key.objectid == 0) ? NULL : &key,
+				      (next_key.objectid == 0) ? NULL : &next_key,
+				      gen, btrfs_header_owner(eb),
+				      btrfs_header_level(eb) - 1);
+		if (!tmp) {
+			printf("Couldn't find a replacement block for slot %d\n",
+			       slot);
+			return NULL;
+		}
+
+		printf("fixed slot %d\n", slot);
+		btrfs_set_node_blockptr(eb, slot, tmp->start);
+		btrfs_set_node_ptr_generation(eb, slot, btrfs_header_generation(eb));
+		write_tree_block(NULL, eb->fs_info, eb);
 	}
 	return tmp;
 }
@@ -127,24 +222,44 @@ static bool try_read_root_item(struct extent_buffer *eb, int slot)
 	struct extent_buffer *tmp;
 	struct btrfs_key key;
 	u64 bytenr, gen;
-	bool ret = true;
+	int level;
 
 	btrfs_item_key_to_cpu(eb, &key, slot);
 	if (key.type != BTRFS_ROOT_ITEM_KEY)
 		return true;
 
-	printf("checking root item %llu\n", key.objectid);
 	ri = btrfs_item_ptr(eb, slot, struct btrfs_root_item);
 	bytenr = btrfs_disk_root_bytenr(eb, ri);
 	gen = btrfs_disk_root_generation(eb, ri);
+	level = btrfs_disk_root_level(eb, ri);
 
-	tmp = read_tree_block(eb->fs_info, bytenr, gen);
-	if (!tmp || IS_ERR(tmp))
-		return false;
-	if (key.objectid != btrfs_header_owner(tmp))
-		ret = false;
-	free_extent_buffer(tmp);
-	return ret;
+	tmp = read_tree_block(eb->fs_info, bytenr, 0);
+	if (!tmp || IS_ERR(tmp) ||
+	    key.objectid != btrfs_header_owner(tmp) ||
+	    btrfs_header_generation(tmp) != gen ||
+	    btrfs_header_level(tmp) != level ||
+	    btrfs_header_bytenr(tmp) != bytenr ||
+	    btrfs_header_owner(tmp) != key.objectid) {
+		if (tmp && !IS_ERR(tmp))
+			free_extent_buffer(tmp);
+		tmp = find_best_block(eb->fs_info, NULL, NULL,
+				      gen, key.objectid, level);
+		if (!tmp) {
+			printf("Couldn't find a replacement block for root %llu\n",
+			       key.objectid);
+			return false;
+		}
+		printf("fixed root %llu\n", key.objectid);
+		btrfs_set_disk_root_bytenr(eb, ri, tmp->start);
+		btrfs_set_disk_root_generation(eb, ri, btrfs_header_generation(tmp));
+		btrfs_set_disk_root_level(eb, ri, btrfs_header_level(tmp));
+		free_extent_buffer(tmp);
+		write_tree_block(NULL, eb->fs_info, eb);
+		return true;
+	} else {
+		free_extent_buffer(tmp);
+	}
+	return true;
 }
 
 static int count_bad_items(struct extent_buffer *eb)
@@ -152,13 +267,10 @@ static int count_bad_items(struct extent_buffer *eb)
 	struct btrfs_fs_info *fs_info = eb->fs_info;
 	int bad_count = 0;
 	int suppress_errors = 0;
-	int allow_transid_mismatch = 0;
 	int i;
 
 	suppress_errors = fs_info->suppress_check_block_errors;
-	allow_transid_mismatch = fs_info->allow_transid_mismatch;
 	fs_info->suppress_check_block_errors = 1;
-	fs_info->allow_transid_mismatch = 0;
 	for (i = 0; i < btrfs_header_nritems(eb); i++) {
 		if (btrfs_header_level(eb)) {
 			struct extent_buffer *tmp = try_read_block(eb, i);
@@ -166,18 +278,15 @@ static int count_bad_items(struct extent_buffer *eb)
 				bad_count += count_bad_items(tmp);
 				free_extent_buffer(tmp);
 			} else {
-				printf("bad block\n");
 				bad_count++;
 			}
 		} else {
 			if (!try_read_root_item(eb, i)) {
-				printf("bad root\n");
 				bad_count++;
 			}
 		}
 	}
 	fs_info->suppress_check_block_errors = suppress_errors;
-	fs_info->allow_transid_mismatch = allow_transid_mismatch;
 	return bad_count;
 }
 
@@ -434,7 +543,7 @@ int main(int argc, char **argv)
 	struct cache_tree result;
 	struct cache_extent *found;
 	struct open_ctree_flags ocf = { 0 };
-	int ret;
+	int ret = 0;
 
 	/* Default to search root tree */
 	filter.objectid = BTRFS_ROOT_TREE_OBJECTID;
@@ -486,6 +595,9 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	cache_tree_init(&result);
+
+	count_bad_items(fs_info->tree_root->node);
+	goto out;
 
 	get_root_gen_and_level(filter.objectid, fs_info,
 			       &filter.match_gen, &filter.match_level);
