@@ -128,7 +128,7 @@ static int traverse_tree_blocks(struct extent_io_tree *tree,
 
 			tmp = read_tree_block(fs_info, bytenr, 0);
 			if (!extent_buffer_uptodate(tmp)) {
-				fprintf(stderr, "Error reading tree block\n");
+				fprintf(stderr, "Error reading tree block owner %llu\n", btrfs_header_owner(eb));
 				return -EIO;
 			}
 			ret = traverse_tree_blocks(tree, tmp, tree_root);
