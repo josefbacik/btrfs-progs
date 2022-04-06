@@ -542,6 +542,7 @@ int main(int argc, char **argv)
 	struct btrfs_find_root_filter filter = {0};
 	struct cache_tree result;
 	struct cache_extent *found;
+	struct btrfs_root *csum_root;
 	struct open_ctree_flags ocf = { 0 };
 	int ret = 0;
 
@@ -597,7 +598,8 @@ int main(int argc, char **argv)
 	}
 	cache_tree_init(&result);
 
-	count_bad_items(fs_info->tree_root->node);
+	csum_root = btrfs_csum_root(fs_info, 0);
+	count_bad_items(csum_root->node);
 	goto out;
 
 	get_root_gen_and_level(filter.objectid, fs_info,
