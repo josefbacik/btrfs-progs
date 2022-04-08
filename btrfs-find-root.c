@@ -430,26 +430,10 @@ static void get_root_gen_and_level(u64 objectid, struct btrfs_fs_info *fs_info,
 				   u64 *ret_gen, u8 *ret_level)
 {
 	struct btrfs_super_block *super = fs_info->super_copy;
-	u64 gen = (u64)-1;
-	u8 level = (u8)-1;
+	u64 gen;
+	u8 level;
 
-	switch (objectid) {
-	case BTRFS_ROOT_TREE_OBJECTID:
-		level = btrfs_super_root_level(super);
-		gen = btrfs_super_generation(super);
-		break;
-	case BTRFS_CHUNK_TREE_OBJECTID:
-		level = btrfs_super_chunk_root_level(super);
-		gen = btrfs_super_chunk_root_generation(super);
-		break;
-	case BTRFS_TREE_LOG_OBJECTID:
-		level = btrfs_super_log_root_level(super);
-		gen = btrfs_super_log_root_transid(super);
-		break;
-	case BTRFS_UUID_TREE_OBJECTID:
-		gen = btrfs_super_uuid_tree_generation(super);
-		break;
-	}
+	btrfs_get_super_root_info(fs_info, objectid, &gen, &level);
 	if (gen != (u64)-1) {
 		printf("Superblock thinks the generation is %llu\n", gen);
 		if (ret_gen)

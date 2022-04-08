@@ -35,6 +35,43 @@ static const char * const rescue_cmd_group_usage[] = {
 	NULL
 };
 
+static const char * const cmd_rescue_tree_recover_usage[] = {
+	"btrfs rescue tree-recover [options] <device>",
+	"Attempt to find the best copies of any stale blocks in tree nodes in order to allow btrfs check to make the file system consistent",
+	NULL
+};
+
+static int cmd_rescue_tree_recover(const struct cmd_struct *cmd,
+				   int argc, char *argv[])
+{
+	char *devname;
+	int ret;
+
+	clean_args_no_options(cmd, argc, argv);
+	if (check_argc_exact(argc, 2))
+		return -EINVAL;
+
+	devname = argv[optind];
+	ret = check_mounted(devname);
+	if (ret < 0) {
+		errno = -ret;
+		error("could not check mount status: %m");
+		return ret;
+	} else if (ret) {
+		error("%s is currently mounted", devname);
+		return -EBUSY;
+	}
+
+	ret = btrfs_recover_trees(devname);
+	if (!ret) {
+		fprintf(stdout, "Tree recovery finished, you can run check now\n");
+	} else {
+		fprintf(stdout, "Tree recover failed\n");
+	}
+	return ret;
+}
+static DEFINE_SIMPLE_COMMAND(rescue_tree_recover, "tree-recover");
+
 static const char * const cmd_rescue_chunk_recover_usage[] = {
 	"btrfs rescue chunk-recover [options] <device>",
 	"Recover the chunk tree by scanning the devices one by one.",
@@ -409,6 +446,7 @@ static const struct cmd_group rescue_cmd_group = {
 		&cmd_struct_rescue_fix_device_size,
 		&cmd_struct_rescue_create_control_device,
 		&cmd_struct_rescue_clear_uuid_tree,
+		&cmd_struct_rescue_tree_recover,
 		NULL
 	}
 };

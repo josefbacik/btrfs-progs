@@ -62,7 +62,7 @@ CSCOPE_CMD := cscope -u -b -c -q
 
 include Makefile.extrawarn
 
-EXTRA_CFLAGS :=
+EXTRA_CFLAGS := -g
 EXTRA_LDFLAGS :=
 
 DEBUG_CFLAGS_DEFAULT = -O0 -U_FORTIFY_SOURCE -ggdb3
@@ -201,7 +201,7 @@ cmds_objects = cmds/subvolume.o cmds/subvolume-list.o \
 	       cmds/inspect.o cmds/balance.o cmds/send.o cmds/receive.o \
 	       cmds/quota.o cmds/qgroup.o cmds/replace.o check/main.o \
 	       cmds/restore.o cmds/rescue.o cmds/rescue-chunk-recover.o \
-	       cmds/rescue-super-recover.o \
+	       cmds/rescue-super-recover.o cmds/rescue-tree-recover.o \
 	       cmds/property.o cmds/filesystem-usage.o cmds/inspect-dump-tree.o \
 	       cmds/inspect-dump-super.o cmds/inspect-tree-stats.o cmds/filesystem-du.o \
 	       mkfs/common.o check/mode-common.o check/mode-lowmem.o

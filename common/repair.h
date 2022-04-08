@@ -37,5 +37,7 @@ int btrfs_mark_used_tree_blocks(struct btrfs_fs_info *fs_info,
 				struct extent_io_tree *tree);
 int btrfs_mark_used_blocks(struct btrfs_fs_info *fs_info,
 			   struct extent_io_tree *tree);
+void btrfs_get_super_root_info(struct btrfs_fs_info *fs_info, u64 objectid,
+			       u64 *ret_bytenr, u64 *ret_gen, u8 *ret_level);
 
 #endif

@@ -987,7 +987,7 @@ int btrfs_check_fs_compatibility(struct btrfs_super_block *sb,
 	return 0;
 }
 
-static int find_best_backup_root(struct btrfs_super_block *super)
+int btrfs_find_best_backup_root(struct btrfs_super_block *super)
 {
 	struct btrfs_root_backup *backup;
 	u64 orig_gen = btrfs_super_generation(super);
@@ -1172,7 +1172,7 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 		root_tree_bytenr = btrfs_super_root(sb);
 	} else if (flags & OPEN_CTREE_BACKUP_ROOT) {
 		struct btrfs_root_backup *backup;
-		int index = find_best_backup_root(sb);
+		int index = btrfs_find_best_backup_root(sb);
 		if (index >= BTRFS_NUM_BACKUP_ROOTS) {
 			fprintf(stderr, "Invalid backup root number\n");
 			return -EIO;
@@ -2020,7 +2020,7 @@ static void backup_super_roots(struct btrfs_fs_info *info)
 	int next_backup;
 	int last_backup;
 
-	last_backup = find_best_backup_root(info->super_copy);
+	last_backup = btrfs_find_best_backup_root(info->super_copy);
 	next_backup = (last_backup + 1) % BTRFS_NUM_BACKUP_ROOTS;
 
 	/* just overwrite the last backup if we're at the same generation */
