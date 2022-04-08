@@ -151,6 +151,8 @@ static bool is_good_block(struct extent_buffer *parent,
 
 	if (!fstree && btrfs_header_owner(parent) != btrfs_header_owner(eb))
 		return false;
+	if (fstree && !is_fstree(btrfs_header_owner(eb)))
+		return false;
 	if (btrfs_header_level(eb) != (btrfs_header_level(parent) - 1))
 		return false;
 	if (btrfs_header_generation(eb) != gen)
@@ -297,6 +299,7 @@ static int populate_block_info_cache(struct btrfs_fs_info *fs_info,
 	u64 chunk_offset = 0, chunk_size = 0, offset = 0;
 	u32 nodesize = btrfs_super_nodesize(fs_info->super_copy);
 	int ret;
+	bool fstree = is_fstree(objectid);
 
 	/*
 	 * Sometimes we have to populate the block cache to find a root, so if
@@ -333,7 +336,12 @@ static int populate_block_info_cache(struct btrfs_fs_info *fs_info,
 				continue;
 			}
 
-			if (btrfs_header_owner(eb) != objectid) {
+			if (!fstree && btrfs_header_owner(eb) != objectid) {
+				free_extent_buffer_nocache(eb);
+				continue;
+			}
+
+			if (fstree && !is_fstree(btrfs_header_owner(eb))) {
 				free_extent_buffer_nocache(eb);
 				continue;
 			}
@@ -346,7 +354,14 @@ static int populate_block_info_cache(struct btrfs_fs_info *fs_info,
 				fprintf(stderr, "Failed to allocate block info, bailing\n");
 				break;
 			}
-			set_extent_dirty(&seen, offset, offset + nodesize - 1);
+
+			/*
+			 * fs tree's can point at blocks they down own
+			 * themselves, so don't mark fs tree blocks as seen.
+			 */
+			if (fstree)
+				set_extent_dirty(&seen, offset,
+						 offset + nodesize - 1);
 			free_extent_buffer_nocache(eb);
 		}
 	}
