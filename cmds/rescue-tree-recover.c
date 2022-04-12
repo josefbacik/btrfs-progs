@@ -144,6 +144,7 @@ static bool is_good_block(struct extent_buffer *parent,
 	u64 bytenr = btrfs_node_blockptr(parent, parent_slot);
 	u64 gen = btrfs_node_ptr_generation(parent, parent_slot);
 	bool fstree = is_fstree(btrfs_header_owner(parent));
+	enum btrfs_tree_block_status status;
 
 	btrfs_node_key_to_cpu(parent, &first_key, parent_slot);
 	if (parent_slot < (btrfs_header_nritems(parent) - 1))
@@ -173,7 +174,16 @@ static bool is_good_block(struct extent_buffer *parent,
 		btrfs_item_key_to_cpu(eb, &key, btrfs_header_nritems(eb) - 1);
 	if (btrfs_comp_cpu_keys(&key, &next_key) > 0)
 		return false;
-	return true;
+
+	/*
+	 * We should handle bad key ordering better in this tool, but for now
+	 * just chuck the whole block.
+	 */
+	if (btrfs_header_level(eb))
+		status = btrfs_check_node(eb->fs_info, NULL, eb);
+	else
+		status = btrfs_check_leaf(eb->fs_info, NULL, eb);
+	return status == BTRFS_TREE_BLOCK_CLEAN;
 }
 
 /*
