@@ -201,20 +201,33 @@ static void get_tree_info(struct btrfs_fs_info *fs_info,
 	for (i = 0; i < btrfs_header_nritems(eb); i++) {
 		struct extent_buffer *tmp;
 		u64 bytenr;
+		bool debug = false;
 
 		bytenr = btrfs_node_blockptr(eb, i);
 
+		if (bytenr == 364635471872ULL) {
+			debug = true;
+			printf("CHECKING THE BAD BLOCK\n");
+		}
 		tmp = read_tree_block(fs_info, bytenr, 0);
 		if (IS_ERR(tmp)) {
+			if (debug)
+				printf("COULDN'T READ, I KNOW IT'S BAD\n");
 			info->bad_blocks++;
 			continue;
 		}
+		if (debug)
+			printf("OK DOING MY THING\n");
 		info->found_blocks++;
 		if (!is_good_block(eb, tmp, i)) {
+			if (debug)
+				printf("OK I SAW IT WAS BAD\n");
 			free_extent_buffer_nocache(tmp);
 			info->bad_blocks++;
 			continue;
 		}
+		if (debug)
+			printf("I THINK IT'S OK????\n");
 		get_tree_info(fs_info, tmp, info);
 		free_extent_buffer_nocache(tmp);
 	}
@@ -863,6 +876,7 @@ static int process_root_items(struct btrfs_fs_info *fs_info)
 		info.level = btrfs_disk_root_level(path.nodes[0], ri);
 		info.objectid = found_key.objectid;
 
+		printf("Checking root %llu\n", found_key.objectid);
 		if (info.objectid == 10)
 			printf("searching for fst at level %d\n", info.level);
 		ret = find_best_root(fs_info, &info);
