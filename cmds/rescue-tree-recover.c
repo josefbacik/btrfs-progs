@@ -774,12 +774,12 @@ again:
 
 			info = find_best_block(fs_info, &search, &prev_last);
 			if (!info) {
-				fprintf(stderr, "deleting slot %d in block %llu\n",
-					i, eb->start);
+//				fprintf(stderr, "deleting slot %d in block %llu\n",
+//					i, eb->start);
 				delete_slot(eb, i);
 			} else {
-				fprintf(stderr, "updating slot %d in block %llu\n",
-					i, eb->start);
+//				fprintf(stderr, "updating slot %d in block %llu\n",
+//					i, eb->start);
 				rewrite_slot(eb, i, info);
 				free(info);
 			}
@@ -841,6 +841,67 @@ static int repair_root(struct btrfs_fs_info *fs_info, struct root_info *info)
 	return ret;
 }
 
+static void rescue_fixup_low_keys(struct btrfs_path *path)
+{
+	struct btrfs_disk_key disk_key;
+	int i;
+
+	btrfs_item_key(path->nodes[0], &disk_key, 0);
+
+	for (i = 1; i < BTRFS_MAX_LEVEL; i++) {
+		int tslot = path->slots[i];
+		if (!path->nodes[i])
+			break;
+		btrfs_set_node_key(path->nodes[i], &disk_key, tslot);
+		write_tree_block(NULL, fs_info, path->nodes[i]);
+		if (tslot != 0)
+			break;
+	}
+}
+
+static void delete_root(struct btrfs_path *path, int slot)
+{
+	struct extent_buffer *leaf;
+	struct btrfs_item *item;
+	int last_off;
+	int dsize;
+	int i;
+	int nritems;
+
+	leaf = path->nodes[0];
+	last_off = btrfs_item_offset_nr(leaf, slot);
+	dsize = btrfs_item_size_nr(leaf, slot);
+
+	nritems = btrfs_header_nritems(leaf);
+
+	if (slot != nritems) {
+		int data_end = leaf_data_end(leaf);
+
+		memmove_extent_buffer(leaf, btrfs_leaf_data(leaf) +
+			      data_end + dsize,
+			      btrfs_leaf_data(leaf) + data_end,
+			      last_off - data_end);
+
+		for (i = slot + 1; i < nritems; i++) {
+			u32 ioff;
+
+			item = btrfs_item_nr(i);
+			ioff = btrfs_item_offset(leaf, item);
+			btrfs_set_item_offset(leaf, item, ioff + dsize);
+		}
+
+		memmove_extent_buffer(leaf, btrfs_item_nr_offset(slot),
+			      btrfs_item_nr_offset(slot + 1),
+			      sizeof(struct btrfs_item) *
+			      (nritems - slot - 1));
+	}
+	btrfs_set_header_nritems(leaf, nritems - 1);
+
+	if (slot == 0)
+		rescue_fixup_low_keys(path);
+	write_tree_block(NULL, fs_info, path->nodes[0]);
+}
+
 /*
  * At this point the tree_root should be more or less valid, lets walk through
  * the root items and validate them.
@@ -858,7 +919,7 @@ static int process_root_items(struct btrfs_fs_info *fs_info)
 		error("Couldn't search tree root?\n");
 		return ret;
 	}
-
+again:
 	do {
 		struct btrfs_key found_key;
 		struct root_info info = {};
@@ -880,8 +941,12 @@ static int process_root_items(struct btrfs_fs_info *fs_info)
 		if (info.objectid == 10)
 			printf("searching for fst at level %d\n", info.level);
 		ret = find_best_root(fs_info, &info);
-		if (ret)
-			break;
+		if (ret) {
+			printf("We thought root %llu could be found at %llu level %d but didn't find anything, deleting it.\n",
+			       found_key.objectid, info.bytenr, info.level);
+			delete_root(&path, path.slots[0]);
+			goto again;
+		}
 
 		if (info.bad_blocks) {
 			ret = repair_root(fs_info, &info);
