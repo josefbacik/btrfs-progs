@@ -853,10 +853,18 @@ static void rescue_fixup_low_keys(struct btrfs_path *path)
 		if (!path->nodes[i])
 			break;
 		btrfs_set_node_key(path->nodes[i], &disk_key, tslot);
-		write_tree_block(NULL, fs_info, path->nodes[i]);
+		write_tree_block(NULL, path->nodes[i]->fs_info, path->nodes[i]);
 		if (tslot != 0)
 			break;
 	}
+}
+
+static inline unsigned int leaf_data_end(const struct extent_buffer *leaf)
+{
+	u32 nr = btrfs_header_nritems(leaf);
+	if (nr == 0)
+		return BTRFS_LEAF_DATA_SIZE(leaf->fs_info);
+	return btrfs_item_offset_nr(leaf, nr - 1);
 }
 
 static void delete_root(struct btrfs_path *path, int slot)
@@ -899,7 +907,7 @@ static void delete_root(struct btrfs_path *path, int slot)
 
 	if (slot == 0)
 		rescue_fixup_low_keys(path);
-	write_tree_block(NULL, fs_info, path->nodes[0]);
+	write_tree_block(NULL, leaf->fs_info, path->nodes[0]);
 }
 
 /*
