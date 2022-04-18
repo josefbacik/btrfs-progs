@@ -741,7 +741,8 @@ static void rewrite_slot(struct extent_buffer *eb, int slot,
 	write_tree_block(NULL, eb->fs_info, eb);
 }
 
-static int repair_tree(struct btrfs_fs_info *fs_info, struct extent_buffer *eb)
+static int repair_tree(struct btrfs_fs_info *fs_info,
+		       struct root_info *root_info, struct extent_buffer *eb)
 {
 	struct btrfs_key prev_last = {};
 	struct block_info *info;
@@ -776,10 +777,12 @@ again:
 			if (!info) {
 //				fprintf(stderr, "deleting slot %d in block %llu\n",
 //					i, eb->start);
+				root_info->last_repair = eb->start;
 				delete_slot(eb, i);
 			} else {
 //				fprintf(stderr, "updating slot %d in block %llu\n",
 //					i, eb->start);
+				root_info->last_repair = eb->start;
 				rewrite_slot(eb, i, info);
 				free(info);
 			}
@@ -794,7 +797,7 @@ again:
 		btrfs_node_key_to_cpu(tmp, &first_key, 0);
 		btrfs_node_key_to_cpu(tmp, &prev_last,
 				      btrfs_header_nritems(tmp) - 1);
-		ret = repair_tree(fs_info, tmp);
+		ret = repair_tree(fs_info, root_info, tmp);
 		if (ret) {
 			free_extent_buffer_nocache(tmp);
 			break;
@@ -829,7 +832,7 @@ static int repair_root(struct btrfs_fs_info *fs_info, struct root_info *info)
 		return -1;
 	}
 
-	ret = repair_tree(fs_info, eb);
+	ret = repair_tree(fs_info, info, eb);
 	free_extent_buffer_nocache(eb);
 	return ret;
 }
