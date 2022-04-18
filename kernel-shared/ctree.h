@@ -2204,6 +2204,8 @@ static inline int btrfs_is_leaf(struct extent_buffer *eb)
 /* struct btrfs_root_item */
 BTRFS_SETGET_FUNCS(disk_root_generation, struct btrfs_root_item,
 		   generation, 64);
+BTRFS_SETGET_FUNCS(disk_root_generation_v2, struct btrfs_root_item,
+		   generation_v2, 64);
 BTRFS_SETGET_FUNCS(disk_root_refs, struct btrfs_root_item, refs, 32);
 BTRFS_SETGET_FUNCS(disk_root_bytenr, struct btrfs_root_item, bytenr, 64);
 BTRFS_SETGET_FUNCS(disk_root_level, struct btrfs_root_item, level, 8);

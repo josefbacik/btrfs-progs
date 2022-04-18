@@ -35,6 +35,7 @@
 #include "crypto/crc32c.h"
 #include "common/extent-cache.h"
 #include "common/help.h"
+#include "common/repair.h"
 #include "cmds/commands.h"
 
 /*
@@ -429,11 +430,10 @@ out:
 static void get_root_gen_and_level(u64 objectid, struct btrfs_fs_info *fs_info,
 				   u64 *ret_gen, u8 *ret_level)
 {
-	struct btrfs_super_block *super = fs_info->super_copy;
 	u64 gen;
 	u8 level;
 
-	btrfs_get_super_root_info(fs_info, objectid, &gen, &level);
+	btrfs_get_super_root_info(fs_info, objectid, NULL, &gen, &level);
 	if (gen != (u64)-1) {
 		printf("Superblock thinks the generation is %llu\n", gen);
 		if (ret_gen)

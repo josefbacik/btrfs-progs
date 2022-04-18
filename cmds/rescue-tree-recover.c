@@ -17,6 +17,10 @@ struct root_info {
 	u64 bytenr;
 	u64 generation;
 	u8 level;
+
+	/* Last bytenr we updated, to detect infinite loops. */
+	u64 last_repair;
+
 	int bad_blocks;
 	int found_blocks;
 	int fixed;
@@ -201,33 +205,29 @@ static void get_tree_info(struct btrfs_fs_info *fs_info,
 	for (i = 0; i < btrfs_header_nritems(eb); i++) {
 		struct extent_buffer *tmp;
 		u64 bytenr;
-		bool debug = false;
 
 		bytenr = btrfs_node_blockptr(eb, i);
 
-		if (bytenr == 364635471872ULL) {
-			debug = true;
-			printf("CHECKING THE BAD BLOCK\n");
-		}
 		tmp = read_tree_block(fs_info, bytenr, 0);
 		if (IS_ERR(tmp)) {
-			if (debug)
-				printf("COULDN'T READ, I KNOW IT'S BAD\n");
 			info->bad_blocks++;
 			continue;
 		}
-		if (debug)
-			printf("OK DOING MY THING\n");
+
 		info->found_blocks++;
 		if (!is_good_block(eb, tmp, i)) {
-			if (debug)
-				printf("OK I SAW IT WAS BAD\n");
 			free_extent_buffer_nocache(tmp);
 			info->bad_blocks++;
 			continue;
 		}
-		if (debug)
-			printf("I THINK IT'S OK????\n");
+
+		/*
+		 * If we're the same owner as our child then we can mark this as
+		 * seen.
+		 */
+		if (btrfs_header_owner(eb) == btrfs_header_owner(tmp))
+			set_extent_dirty(&seen, bytenr,
+					 bytenr + fs_info->nodesize - 1);
 		get_tree_info(fs_info, tmp, info);
 		free_extent_buffer_nocache(tmp);
 	}
@@ -315,9 +315,14 @@ static int add_block_info(struct extent_buffer *eb)
  * can read with the given objectid, and we will populate the block info cache
  * with these blocks.  We also mark them as seen so we don't re-read them later
  * looking for other roots.
+ *
+ * If this is an fstree we'll populate the cache with all fstree related blocks,
+ * as we need to account for snapshots.  However if you are searching for a root
+ * block we know we only want that particular objectid, in this case strict
+ * should == true.
  */
 static int populate_block_info_cache(struct btrfs_fs_info *fs_info,
-				     u64 objectid)
+				     u64 objectid, bool strict)
 {
 	u64 chunk_offset = 0, chunk_size = 0, offset = 0;
 	u32 nodesize = btrfs_super_nodesize(fs_info->super_copy);
@@ -359,7 +364,8 @@ static int populate_block_info_cache(struct btrfs_fs_info *fs_info,
 				continue;
 			}
 
-			if (!fstree && btrfs_header_owner(eb) != objectid) {
+			if ((!fstree || strict) &&
+			    btrfs_header_owner(eb) != objectid) {
 				free_extent_buffer_nocache(eb);
 				continue;
 			}
@@ -378,13 +384,6 @@ static int populate_block_info_cache(struct btrfs_fs_info *fs_info,
 				break;
 			}
 
-			/*
-			 * fs tree's can point at blocks they down own
-			 * themselves, so don't mark fs tree blocks as seen.
-			 */
-			if (fstree)
-				set_extent_dirty(&seen, offset,
-						 offset + nodesize - 1);
 			free_extent_buffer_nocache(eb);
 		}
 	}
@@ -609,7 +608,7 @@ static int scan_for_best_root(struct btrfs_fs_info *fs_info,
 	memcpy(&cur, info, sizeof(cur));
 	memcpy(&best, info, sizeof(best));
 
-	ret = populate_block_info_cache(fs_info, info->objectid);
+	ret = populate_block_info_cache(fs_info, info->objectid, true);
 	if (ret) {
 		error("Couldn't populate block info cache");
 		return ret;
@@ -635,6 +634,7 @@ static int scan_for_best_root(struct btrfs_fs_info *fs_info,
 		free(block_info);
 	}
 
+	free_block_cache_tree(&block_cache);
 	if (!found) {
 		error("Couldn't find a valid root block for %llu, we're going to clear it and hope for the best",
 		      info->objectid);
@@ -823,12 +823,6 @@ static int repair_root(struct btrfs_fs_info *fs_info, struct root_info *info)
 	struct extent_buffer *eb;
 	int ret;
 
-	ret = populate_block_info_cache(fs_info, info->objectid);
-	if (ret) {
-		error("Couldn't populate block info cache");
-		return ret;
-	}
-
 	eb = read_tree_block(fs_info, info->bytenr, 0);
 	if (!eb || IS_ERR(eb)) {
 		error("Failed to read root block");
@@ -837,7 +831,112 @@ static int repair_root(struct btrfs_fs_info *fs_info, struct root_info *info)
 
 	ret = repair_tree(fs_info, eb);
 	free_extent_buffer_nocache(eb);
+	return ret;
+}
+
+static int repair_super_root(struct btrfs_fs_info **fs_info_ptr,
+			     struct open_ctree_flags *ocf, u64 objectid)
+{
+	struct btrfs_fs_info *fs_info = *fs_info_ptr;
+	struct root_info info = {};
+	u64 last_repair = 0;
+	int ret;
+
+	/*
+	 * First we need to figure out which root is going to give us the least
+	 * amount of things to fix.
+	 */
+	info.objectid = objectid;
+	btrfs_get_super_root_info(fs_info, info.objectid, &info.bytenr,
+				  &info.generation, &info.level);
+	ret = find_best_root(fs_info, &info);
+	if (ret)
+		return ret;
+
+	if (!info.bad_blocks && !info.update)
+		return 0;
+
+	ret = populate_block_info_cache(fs_info, objectid, false);
+	if (ret) {
+		error("Couldn't populate block info cache");
+		return ret;
+	}
+
+	/*
+	 * Now we loop through and fix the root.  When we link in new best fit
+	 * blocks we will know nothing about the blocks that block touches, so
+	 * we'll have to close the file system and then re-scan the root to see
+	 * if there's any blocks that need to be repaired.
+	 *
+	 * At this point we've already figured out what root we're going with,
+	 * so we just need to continuously get the number of bad blocks and then
+	 * repair the tree.  We keep track of which block we messed with last to
+	 * catch infinite loops.  If we're just looping over and over on the
+	 * same block we know we've messed up and we can break and complain.
+	 */
+	while (info.bad_blocks || info.update) {
+		if (last_repair && last_repair == info.last_repair) {
+			error("We've looped on trying to repair %llu on block %llu",
+			      info.objectid, info.last_repair);
+			ret = -EINVAL;
+			break;
+		}
+
+		last_repair = info.last_repair;
+		info.last_repair = 0;
+		if (info.bad_blocks) {
+			ret = repair_root(fs_info, &info);
+			if (ret)
+				break;
+		}
+
+		switch (objectid) {
+		case BTRFS_ROOT_TREE_OBJECTID:
+			btrfs_set_super_generation(fs_info->super_copy,
+						   info.generation);
+			btrfs_set_super_root(fs_info->super_copy, info.bytenr);
+			btrfs_set_super_root_level(fs_info->super_copy,
+						   info.level);
+			break;
+		case BTRFS_CHUNK_TREE_OBJECTID:
+			btrfs_set_super_chunk_root(fs_info->super_copy,
+						   info.bytenr);
+			btrfs_set_super_chunk_root_level(fs_info->super_copy,
+							 info.level);
+			btrfs_set_super_chunk_root_generation(fs_info->super_copy,
+							      info.generation);
+			break;
+		}
+
+		/*
+		 * We've updated major roots, we need to write the super, close
+		 * and re-open the fs_info.
+		 */
+		ret = write_all_supers(fs_info);
+		if (ret) {
+			error("Couldn't write super blocks");
+			break;
+		}
+		close_ctree_fs_info(fs_info);
+		fs_info = open_ctree_fs_info(ocf);
+		if (!fs_info) {
+			error("open ctree failed");
+			ret = -1;
+			break;
+		}
+		fs_info->suppress_check_block_errors = 1;
+
+		/*
+		 * We've committed to our current root bytenr, so now just walk
+		 * down what we've got and see if there's anything we need to
+		 * repair still.
+		 */
+		reset_root_info(&info);
+		get_root_info(fs_info, &info);
+	}
+
 	free_block_cache_tree(&block_cache);
+	*fs_info_ptr = fs_info;
 	return ret;
 }
 
@@ -910,6 +1009,83 @@ static void delete_root(struct btrfs_path *path, int slot)
 	write_tree_block(NULL, leaf->fs_info, path->nodes[0]);
 }
 
+static int process_root_item(struct btrfs_fs_info *fs_info,
+			     struct btrfs_path *path)
+{
+	struct btrfs_root_item *ri;
+	struct root_info info = {};
+	struct btrfs_key key;
+	u64 last_repair = 0;
+	int ret;
+
+	btrfs_item_key_to_cpu(path->nodes[0], &key, path->slots[0]);
+
+	ri = btrfs_item_ptr(path->nodes[0], path->slots[0],
+			    struct btrfs_root_item);
+	info.bytenr = btrfs_disk_root_bytenr(path->nodes[0], ri);
+	info.generation = btrfs_disk_root_generation(path->nodes[0], ri);
+	info.level = btrfs_disk_root_level(path->nodes[0], ri);
+	info.objectid = key.objectid;
+
+	printf("Checking root %llu\n", key.objectid);
+
+	ret = find_best_root(fs_info, &info);
+	if (ret) {
+		printf("We thought root %llu could be found at %llu level %d but didn't find anything, deleting it.\n",
+		       key.objectid, info.bytenr, info.level);
+		delete_root(path, path->slots[0]);
+		return -EAGAIN;
+	}
+
+	if (info.generation !=
+	    btrfs_disk_root_generation_v2(path->nodes[0], ri))
+		info.update = true;
+
+	if (!info.bad_blocks && !info.update)
+		return 0;
+
+	ret = populate_block_info_cache(fs_info, info.objectid, false);
+	if (ret) {
+		error("Couldn't populate block info cache");
+		return ret;
+	}
+
+	/*
+	 * Similar logic as repair_super_root.  We've picked our root, now we
+	 * need to go through and link in blocks that need to be repaired.  When
+	 * we link in new blocks they could be part of a new subtree, and thus
+	 * we have to loop again and repair any children of that block.
+	 */
+	while (info.bad_blocks || info.update) {
+		if (last_repair && last_repair == info.last_repair) {
+			error("We've looped on trying to repair %llu on block %llu",
+			      info.objectid, info.last_repair);
+			ret = -EINVAL;
+			break;
+		}
+
+		if (info.bad_blocks) {
+			ret = repair_root(fs_info, &info);
+			if (ret)
+				break;
+		}
+
+		printf("Updating root %llu\n", key.objectid);
+		btrfs_set_disk_root_bytenr(path->nodes[0], ri, info.bytenr);
+		btrfs_set_disk_root_generation(path->nodes[0], ri,
+					       info.generation);
+		btrfs_set_disk_root_generation_v2(path->nodes[0], ri,
+						  info.generation);
+		btrfs_set_disk_root_level(path->nodes[0], ri, info.level);
+		write_tree_block(NULL, fs_info, path->nodes[0]);
+
+		reset_root_info(&info);
+		get_root_info(fs_info, &info);
+	}
+	free_block_cache_tree(&block_cache);
+	return ret;
+}
+
 /*
  * At this point the tree_root should be more or less valid, lets walk through
  * the root items and validate them.
@@ -930,49 +1106,18 @@ static int process_root_items(struct btrfs_fs_info *fs_info)
 again:
 	do {
 		struct btrfs_key found_key;
-		struct root_info info = {};
-		struct btrfs_root_item *ri;
 
 		btrfs_item_key_to_cpu(path.nodes[0], &found_key,
 				      path.slots[0]);
 		if (found_key.type != BTRFS_ROOT_ITEM_KEY)
 			continue;
 
-		ri = btrfs_item_ptr(path.nodes[0], path.slots[0],
-				    struct btrfs_root_item);
-		info.bytenr = btrfs_disk_root_bytenr(path.nodes[0], ri);
-		info.generation = btrfs_disk_root_generation(path.nodes[0], ri);
-		info.level = btrfs_disk_root_level(path.nodes[0], ri);
-		info.objectid = found_key.objectid;
-
-		printf("Checking root %llu\n", found_key.objectid);
-		if (info.objectid == 10)
-			printf("searching for fst at level %d\n", info.level);
-		ret = find_best_root(fs_info, &info);
+		ret = process_root_item(fs_info, &path);
 		if (ret) {
-			printf("We thought root %llu could be found at %llu level %d but didn't find anything, deleting it.\n",
-			       found_key.objectid, info.bytenr, info.level);
-			delete_root(&path, path.slots[0]);
-			goto again;
+			if (ret == -EAGAIN)
+				goto again;
+			break;
 		}
-
-		if (info.bad_blocks) {
-			ret = repair_root(fs_info, &info);
-			if (ret)
-				break;
-		}
-
-		if (info.bad_blocks || info.update) {
-			printf("Updating root %llu\n", found_key.objectid);
-			btrfs_set_disk_root_bytenr(path.nodes[0], ri,
-						   info.bytenr);
-			btrfs_set_disk_root_generation(path.nodes[0], ri,
-						       info.generation);
-			btrfs_set_disk_root_level(path.nodes[0], ri,
-						  info.level);
-			write_tree_block(NULL, fs_info, path.nodes[0]);
-		}
-		free_block_cache_tree(&block_cache);
 	} while ((ret = btrfs_next_item(fs_info->tree_root, &path)) == 0);
 
 	if (ret > 0)
@@ -985,18 +1130,15 @@ again:
 int btrfs_recover_trees(const char *path)
 {
 	struct btrfs_fs_info *fs_info;
-	struct root_info info = {};
 	struct open_ctree_flags ocf = {};
 	int ret = 0;
-	bool repair_chunk = false;
-	bool repair_tree = false;
 
 	extent_io_tree_init(&seen);
 
 	ocf.filename = path;
 	ocf.flags = OPEN_CTREE_CHUNK_ROOT_ONLY | OPEN_CTREE_WRITES |
 		OPEN_CTREE_ALLOW_TRANSID_MISMATCH;
-again:
+
 	fs_info = open_ctree_fs_info(&ocf);
 	if (!fs_info) {
 		error("open ctree failed");
@@ -1005,98 +1147,17 @@ again:
 
 	fs_info->suppress_check_block_errors = 1;
 
-	/*
-	 * We need to check the chunk root first, if it's messed up we'll have a
-	 * bad time with everything else.
-	 */
-	info.objectid = BTRFS_CHUNK_TREE_OBJECTID;
-	btrfs_get_super_root_info(fs_info, BTRFS_CHUNK_TREE_OBJECTID,
-				  &info.bytenr, &info.generation, &info.level);
-	ret = find_best_root(fs_info, &info);
+	ret = repair_super_root(&fs_info, &ocf, BTRFS_CHUNK_TREE_OBJECTID);
 	if (ret)
 		goto out;
-
-	/* We had some bad blocks, go ahead and repair this tree first. */
-	if (info.bad_blocks) {
-		if (repair_chunk) {
-			error("Still found bad blocks after a repair loop, bailing");
-			ret = -1;
-			goto out;
-		}
-		ret = repair_root(fs_info, &info);
-		if (ret)
-			goto out;
-		close_ctree_fs_info(fs_info);
-		repair_chunk = true;
-		goto again;
-	} else if (info.update) {
-		if (repair_chunk) {
-			error("Still have update after a repair loop, bailing");
-			ret = -1;
-			goto out;
-		}
-		/*
-		 * We may have found a pristine backup root, so go ahead and
-		 * update the super and go again.
-		 */
-		btrfs_set_super_chunk_root(fs_info->super_copy, info.bytenr);
-		btrfs_set_super_chunk_root_level(fs_info->super_copy,
-						 info.level);
-		btrfs_set_super_chunk_root_generation(fs_info->super_copy,
-						      info.generation);
-		ret = write_all_supers(fs_info);
-		if (ret) {
-			error("Couldn't write super blocks");
-			goto out;
-		}
-		close_ctree_fs_info(fs_info);
-		repair_chunk = true;
-		goto again;
-	}
-
-	reset_root_info(&info);
-	info.objectid = BTRFS_ROOT_TREE_OBJECTID;
-	btrfs_get_super_root_info(fs_info, BTRFS_ROOT_TREE_OBJECTID,
-				  &info.bytenr, &info.generation, &info.level);
-	ret = find_best_root(fs_info, &info);
+	ret = repair_super_root(&fs_info, &ocf, BTRFS_ROOT_TREE_OBJECTID);
 	if (ret)
 		goto out;
-
-	if (info.bad_blocks) {
-		if (repair_tree) {
-			error("Still found bad blocks in tree root after repair, bailing");
-			ret = -1;
-			goto out;
-		}
-		ret = repair_root(fs_info, &info);
-		if (ret)
-			goto out;
-		close_ctree_fs_info(fs_info);
-		repair_tree = true;
-		goto again;
-	} else if (info.update) {
-		if (repair_tree) {
-			error("Still have to update the tree root after repair, bailing");
-			ret = -1;
-			goto out;
-		}
-		btrfs_set_super_generation(fs_info->super_copy,
-					   info.generation);
-		btrfs_set_super_root(fs_info->super_copy, info.bytenr);
-		btrfs_set_super_root_level(fs_info->super_copy, info.level);
-		ret = write_all_supers(fs_info);
-		if (ret) {
-			error("Couldn't write super blocks");
-			goto out;
-		}
-		close_ctree_fs_info(fs_info);
-		repair_tree = true;
-		goto again;
-	}
 
 	ret = process_root_items(fs_info);
 out:
-	close_ctree_fs_info(fs_info);
+	if (fs_info)
+		close_ctree_fs_info(fs_info);
 	btrfs_close_all_devices();
 	extent_io_tree_cleanup(&seen);
 	return ret;
