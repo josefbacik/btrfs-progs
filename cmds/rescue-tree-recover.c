@@ -775,13 +775,13 @@ again:
 
 			info = find_best_block(fs_info, &search, &prev_last);
 			if (!info) {
-//				fprintf(stderr, "deleting slot %d in block %llu\n",
-//					i, eb->start);
+				fprintf(stderr, "deleting slot %d in block %llu\n",
+					i, eb->start);
 				root_info->last_repair = eb->start;
 				delete_slot(eb, i);
 			} else {
-//				fprintf(stderr, "updating slot %d in block %llu\n",
-//					i, eb->start);
+				fprintf(stderr, "updating slot %d in block %llu\n",
+					i, eb->start);
 				root_info->last_repair = eb->start;
 				rewrite_slot(eb, i, info);
 				free(info);
@@ -1053,6 +1053,7 @@ static int process_root_item(struct btrfs_fs_info *fs_info,
 		return ret;
 	}
 
+	printf("Repairing root %llu\n", key.objectid);
 	/*
 	 * Similar logic as repair_super_root.  We've picked our root, now we
 	 * need to go through and link in blocks that need to be repaired.  When
@@ -1073,7 +1074,6 @@ static int process_root_item(struct btrfs_fs_info *fs_info,
 				break;
 		}
 
-		printf("Updating root %llu\n", key.objectid);
 		btrfs_set_disk_root_bytenr(path->nodes[0], ri, info.bytenr);
 		btrfs_set_disk_root_generation(path->nodes[0], ri,
 					       info.generation);
