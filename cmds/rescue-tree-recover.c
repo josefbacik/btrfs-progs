@@ -1054,7 +1054,6 @@ static int process_root_item(struct btrfs_fs_info *fs_info,
 		return ret;
 	}
 
-	printf("Repairing root %llu\n", key.objectid);
 	/*
 	 * Similar logic as repair_super_root.  We've picked our root, now we
 	 * need to go through and link in blocks that need to be repaired.  When
@@ -1062,6 +1061,8 @@ static int process_root_item(struct btrfs_fs_info *fs_info,
 	 * we have to loop again and repair any children of that block.
 	 */
 	while (info.bad_blocks || info.update) {
+		printf("Repairing root %llu bad_blocks %d update %d\n", key.objectid,
+		       info.bad_blocks, info.update);
 		if (last_repair && last_repair == info.last_repair) {
 			error("We've looped on trying to repair %llu on block %llu",
 			      info.objectid, info.last_repair);
