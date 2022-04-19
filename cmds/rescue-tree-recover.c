@@ -39,6 +39,7 @@ struct block_info {
 
 static void reset_root_info(struct root_info *info)
 {
+	info->update = 0;
 	info->bad_blocks = 0;
 	info->found_blocks = 0;
 	info->fixed = 0;
