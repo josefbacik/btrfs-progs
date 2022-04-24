@@ -260,7 +260,7 @@ again:
 		if (path->reada)
 			reada_for_search(fs_info, path, level, slot, 0);
 
-		next = read_node_slot(fs_info, c, slot);
+		next = read_node_slot(fs_info, NULL, c, slot);
 		if (extent_buffer_uptodate(next))
 			break;
 		offset++;
@@ -276,7 +276,7 @@ again:
 			break;
 		if (path->reada)
 			reada_for_search(fs_info, path, level, 0, 0);
-		next = read_node_slot(fs_info, next, 0);
+		next = read_node_slot(fs_info, NULL, next, 0);
 		if (!extent_buffer_uptodate(next))
 			goto again;
 	}

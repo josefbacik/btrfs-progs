@@ -586,6 +586,8 @@ static int read_root_node(struct btrfs_fs_info *fs_info,
 			  struct btrfs_root *root, u64 bytenr, u64 gen,
 			  int level)
 {
+	if (bytenr == 15645878108160)
+		printf("JOSEF: root %llu\n", root->root_key.objectid);
 	root->node = read_tree_block(fs_info, bytenr, gen);
 	if (!extent_buffer_uptodate(root->node))
 		goto err;
