@@ -567,6 +567,11 @@ static void get_root_info(struct btrfs_fs_info *fs_info,
 		return;
 	}
 
+	if (!extent_buffer_uptodate(eb)) {
+		printf("NO ERROR BUT NOT UPTODATE??\n");
+		BUG_ON(1);
+	}
+
 	/*
 	 * If the bytenr doesn't match, or the owner doesn't match don't even
 	 * bother walking down, it's not going to be the droid we're looking
@@ -1031,7 +1036,7 @@ static int process_root_item(struct btrfs_fs_info *fs_info,
 	info.level = btrfs_disk_root_level(path->nodes[0], ri);
 	info.objectid = key.objectid;
 
-	printf("Checking root %llu\n", key.objectid);
+	printf("Checking root %llu bytenr %llu\n", key.objectid, info.bytenr);
 
 	ret = find_best_root(fs_info, &info);
 	if (ret) {
