@@ -2821,6 +2821,7 @@ static int insert_block_group_item(struct btrfs_trans_handle *trans,
 	key.type = BTRFS_BLOCK_GROUP_ITEM_KEY;
 	key.offset = block_group->length;
 
+	printf("doing insert of a block group item %llu\n", block_group->start);
 	root = btrfs_extent_root(fs_info, 0);
 	return btrfs_insert_item(trans, root, &key, &bgi, sizeof(bgi));
 }

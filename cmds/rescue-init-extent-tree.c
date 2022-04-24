@@ -368,14 +368,16 @@ static int reinit_extent_tree(struct btrfs_fs_info *fs_info)
 		key.objectid = cache->start;
 		key.type = BTRFS_BLOCK_GROUP_ITEM_KEY;
 		key.offset = cache->length;
+
+		printf("inserting block group %llu\n", cache->start);
 		ret = btrfs_insert_item(trans, extent_root, &key, &bgi,
 					sizeof(bgi));
 		if (ret) {
-			error("Error adding block group");
+			error("Error adding block group %d", ret);
 			return ret;
 		}
-		btrfs_run_delayed_refs(trans, -1);
 	}
+	btrfs_run_delayed_refs(trans, -1);
 
 	ret = reset_balance(trans);
 	if (ret) {
@@ -750,6 +752,8 @@ int btrfs_init_extent_tree(const char *path)
 		error("open ctree failed, try btrfs rescue tree-recover");
 		return -1;
 	}
+
+	fs_info->suppress_check_block_errors = 1;
 
 	extent_io_tree_init(&inserted);
 
