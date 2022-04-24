@@ -189,7 +189,6 @@ static int btrfs_add_block_group_cache(struct btrfs_fs_info *info,
 			return -EEXIST;
 	}
 
-	printf("added %llu to cache\n", block_group->start);
 	rb_link_node(&block_group->cache_node, parent, p);
 	rb_insert_color(&block_group->cache_node,
 			&info->block_group_cache_tree);
