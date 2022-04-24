@@ -47,6 +47,7 @@ static int btrfs_fsck_reinit_root(struct btrfs_trans_handle *trans,
 	btrfs_set_header_generation(c, trans->transid);
 	btrfs_set_header_backref_rev(c, BTRFS_MIXED_BACKREF_REV);
 	btrfs_set_header_owner(c, root->root_key.objectid);
+	btrfs_set_header_nritems(c, 0);
 
 	write_extent_buffer(c, fs_info->fs_devices->metadata_uuid,
 			    btrfs_header_fsid(), BTRFS_FSID_SIZE);

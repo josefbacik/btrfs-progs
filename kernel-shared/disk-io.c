@@ -405,8 +405,6 @@ struct extent_buffer* read_tree_block(struct btrfs_fs_info *fs_info, u64 bytenr,
 			else
 				ret = btrfs_check_leaf(fs_info, NULL, eb);
 			if (!ret || candidate_mirror == mirror_num) {
-				if (mirror_num != 1)
-					printf("block %llu had to be read from a different mirror, ret %d\n", eb->start, ret);
 				btrfs_set_buffer_uptodate(eb);
 				return eb;
 			}
