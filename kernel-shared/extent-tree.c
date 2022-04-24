@@ -189,6 +189,7 @@ static int btrfs_add_block_group_cache(struct btrfs_fs_info *info,
 			return -EEXIST;
 	}
 
+	printf("added %llu to cache\n", block_group->start);
 	rb_link_node(&block_group->cache_node, parent, p);
 	rb_insert_color(&block_group->cache_node,
 			&info->block_group_cache_tree);
@@ -922,7 +923,9 @@ again:
 	}
 
 	if (ret) {
-		printf("Failed to find [%llu, %u, %llu]\n", key.objectid, key.type, key.offset);
+		if (!trans->reinit_extent_tree)
+			printf("Failed to find [%llu, %u, %llu]\n",
+			       key.objectid, key.type, key.offset);
 		return -ENOENT;
 	}
 
@@ -2021,6 +2024,12 @@ static int __free_extent(struct btrfs_trans_handle *trans,
 			extent_slot = path->slots[0];
 		}
 	} else {
+		ret = -EIO;
+
+		/* This is ok, don't complain. */
+		if (trans->reinit_extent_tree)
+			goto fail;
+
 		printk(KERN_ERR "btrfs unable to find ref byte nr %llu "
 		       "parent %llu root %llu  owner %llu offset %llu\n",
 		       (unsigned long long)bytenr,
@@ -2030,7 +2039,6 @@ static int __free_extent(struct btrfs_trans_handle *trans,
 		       (unsigned long long)owner_offset);
 		printf("path->slots[0]: %d path->nodes[0]:\n", path->slots[0]);
 		btrfs_print_leaf(path->nodes[0], BTRFS_PRINT_TREE_DEFAULT);
-		ret = -EIO;
 		goto fail;
 	}
 
@@ -2562,15 +2570,17 @@ struct extent_buffer *btrfs_alloc_free_block(struct btrfs_trans_handle *trans,
 int btrfs_free_block_groups(struct btrfs_fs_info *info)
 {
 	struct btrfs_space_info *sinfo;
-	struct btrfs_block_group *cache, *next;
+	struct btrfs_block_group *cache;
+	struct rb_node *n;
 	u64 start;
 	u64 end;
 	int ret;
 
-	rbtree_postorder_for_each_entry_safe(cache, next,
-			     &info->block_group_cache_tree, cache_node) {
+	while ((n = rb_first(&info->block_group_cache_tree)) != NULL) {
+		cache = rb_entry(n, struct btrfs_block_group, cache_node);
 		if (!list_empty(&cache->dirty_list))
 			list_del_init(&cache->dirty_list);
+		rb_erase(&cache->cache_node, &info->block_group_cache_tree);
 		RB_CLEAR_NODE(&cache->cache_node);
 		if (cache->free_space_ctl) {
 			btrfs_remove_free_space_cache(cache);

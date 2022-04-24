@@ -23,5 +23,6 @@
 int btrfs_recover_superblocks(const char *path, int yes);
 int btrfs_recover_chunk_tree(const char *path, int yes);
 int btrfs_recover_trees(const char *path);
+int btrfs_init_extent_tree(const char *path);
 
 #endif
