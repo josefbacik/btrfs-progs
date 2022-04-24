@@ -375,6 +375,7 @@ struct extent_buffer* read_tree_block(struct btrfs_fs_info *fs_info, u64 bytenr,
 	if (!eb)
 		return ERR_PTR(-ENOMEM);
 
+	clear_extent_buffer_uptodate(eb);
 	if (btrfs_buffer_uptodate(eb, parent_transid))
 		return eb;
 
@@ -404,6 +405,8 @@ struct extent_buffer* read_tree_block(struct btrfs_fs_info *fs_info, u64 bytenr,
 			else
 				ret = btrfs_check_leaf(fs_info, NULL, eb);
 			if (!ret || candidate_mirror == mirror_num) {
+				if (mirror_num != 0)
+					printf("block %llu had to be read from a different mirror\n", eb->start);
 				btrfs_set_buffer_uptodate(eb);
 				return eb;
 			}
