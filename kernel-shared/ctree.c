@@ -2922,6 +2922,9 @@ int btrfs_insert_item(struct btrfs_trans_handle *trans, struct btrfs_root
 		ptr = btrfs_item_ptr_offset(leaf, path->slots[0]);
 		write_extent_buffer(leaf, data, ptr, data_size);
 		btrfs_mark_buffer_dirty(leaf);
+	} else {
+		printf("wtf transid %llu\n", trans->transid);
+		btrfs_print_leaf(path->nodes[0], 0);
 	}
 	btrfs_free_path(path);
 	return ret;
