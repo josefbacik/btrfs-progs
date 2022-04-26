@@ -288,7 +288,7 @@ reinit_data_reloc:
 	root = btrfs_read_fs_root(fs_info, &key);
 	if (IS_ERR(root)) {
 		fprintf(stderr, "Error reading data reloc tree\n");
-		ret = PTR_ERR(root);
+		ret = 0;
 		goto out;
 	}
 	record_root_in_trans(trans, root);
