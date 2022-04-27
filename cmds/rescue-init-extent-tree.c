@@ -406,6 +406,7 @@ static int insert_empty_extent(struct btrfs_trans_handle *trans,
 	u32 size;
 	int ret;
 
+	prinf("doing insert of %llu\n", key->objectid);
 	if (key->type == BTRFS_METADATA_ITEM_KEY)
 		num_bytes = fs_info->nodesize;
 	else

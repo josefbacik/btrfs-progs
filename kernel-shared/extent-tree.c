@@ -914,6 +914,7 @@ again:
 				ret = 0;
 		}
 		if (ret) {
+			key.objectid = bytenr;
 			key.type = BTRFS_EXTENT_ITEM_KEY;
 			key.offset = num_bytes;
 			btrfs_release_path(path);
