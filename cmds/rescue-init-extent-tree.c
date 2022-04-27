@@ -10,7 +10,35 @@
 #include "kernel-shared/volumes.h"
 #include "kernel-shared/transaction.h"
 
+
+#include "kernel-shared/backref.h"
+
 static struct extent_io_tree inserted;
+
+static void print_paths(struct btrfs_root *root, u64 inum)
+{
+	struct btrfs_path path;
+	struct inode_fs_paths *ipath;
+	int i;
+
+	btrfs_init_path(&path);
+
+	ipath = init_ipath(4096, root, &path);
+	if (IS_ERR(ipath)) {
+		printf("Couldn't allocate ipath\n");
+		return;
+	}
+
+	paths_from_inode(inum, ipath);
+	for (i = 0; i < ipath->fspath->elem_cnt; i++) {
+		char *val = (char *)(ipath->fspath->val[i] -
+			(u64)(unsigned long)ipath->fspath->val);
+		printf("%s\n", val);
+	}
+	btrfs_release_path(&path);
+	free_ipath(ipath);
+}
+
 
 static void record_root_in_trans(struct btrfs_trans_handle *trans,
 				 struct btrfs_root *root)
@@ -475,10 +503,11 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 
 	for (i = 0; i < btrfs_header_nritems(eb); i++) {
 		if (level == 0) {
-			struct btrfs_key found_key;
+			struct btrfs_key found_key, orig;
 			struct btrfs_file_extent_item *fi;
 
 			btrfs_item_key_to_cpu(eb, &found_key, i);
+			btrfs_item_key_to_cpu(eb, &orig, i);
 			if (found_key.type != BTRFS_EXTENT_DATA_KEY)
 				continue;
 
@@ -505,6 +534,11 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			if (!test_range_bit(&inserted, key.objectid,
 					    key.objectid + key.offset - 1,
 					    EXTENT_DIRTY, 0)) {
+				if (in_range(7750833868800, key.objectid, key.offset)) {
+					printf("adding a bytenr that overlaps our thing, dumping paths for [%llu, %u, %llu]\n",
+					       orig.objectid, orig.type, orig.offset);
+					print_paths(root, orig.objectid);
+				}
 				ret = insert_empty_extent(trans, &key, gen,
 							  BTRFS_EXTENT_FLAG_DATA);
 				if (ret) {
@@ -513,7 +547,10 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 					return ret;
 				}
 			} else if (key.objectid == 7750833868800) {
-				printf("WTF???? we think we already inserted this bytenr??\n");
+				printf("WTF???? we think we already inserted this bytenr?? [%llu, %u, %llu] dumping paths\n",
+				       orig.objectid, orig.type,
+				       orig.offset);
+				print_paths(root, orig.objectid);
 			}
 
 			ret = btrfs_inc_extent_ref(trans, root, key.objectid,
