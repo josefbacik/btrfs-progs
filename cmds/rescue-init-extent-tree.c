@@ -393,6 +393,15 @@ static int reinit_extent_tree(struct btrfs_fs_info *fs_info)
 	return ret;
 }
 
+static bool in_range(u64 val, u64 start, u64 len)
+{
+	if (val < start)
+		return false;
+	if (start + len < val)
+		return false;
+	return true;
+}
+
 static int insert_empty_extent(struct btrfs_trans_handle *trans,
 			       struct btrfs_key *key, u64 generation,
 			       u64 flags)
@@ -406,11 +415,16 @@ static int insert_empty_extent(struct btrfs_trans_handle *trans,
 	u32 size;
 	int ret;
 
-	prinf("doing insert of %llu\n", key->objectid);
+	if (key->objectid == 7750833868800)
+		printf("doing an insert of the bytenr\n");
+
 	if (key->type == BTRFS_METADATA_ITEM_KEY)
 		num_bytes = fs_info->nodesize;
 	else
 		num_bytes = key->offset;
+
+	if (in_range(7750833868800, key->objectid, num_bytes))
+		printf("doing an insert that overlaps our bytenr %llu %llu\n", key->objectid, key->offset);
 
 	set_extent_dirty(&inserted, key->objectid, key->objectid + num_bytes - 1);
 
@@ -498,6 +512,8 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 					      ret);
 					return ret;
 				}
+			} else if (key.objectid == 7750833868800) {
+				printf("WTF???? we think we already inserted this bytenr??\n");
 			}
 
 			ret = btrfs_inc_extent_ref(trans, root, key.objectid,
