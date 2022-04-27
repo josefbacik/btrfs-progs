@@ -22,6 +22,7 @@
 #include "kernel-shared/backref.h"
 #include "kernel-shared/ulist.h"
 #include "kernel-shared/transaction.h"
+#include "kernel-shared/print-tree.h"
 #include "common/internal.h"
 
 #define pr_debug(...) do { } while (0)
@@ -1098,8 +1099,10 @@ char *btrfs_ref_to_path(struct btrfs_root *fs_root, struct btrfs_path *path,
 		if (eb != eb_in)
 			free_extent_buffer(eb);
 		ret = inode_ref_info(parent, 0, fs_root, path, &found_key);
-		if (ret > 0)
+		if (ret > 0) {
+			btrfs_print_leaf(path->nodes[0], 0);
 			ret = -ENOENT;
+		}
 		if (ret)
 			break;
 
