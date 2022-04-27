@@ -31,8 +31,7 @@ static void print_paths(struct btrfs_root *root, u64 inum)
 
 	paths_from_inode(inum, ipath);
 	for (i = 0; i < ipath->fspath->elem_cnt; i++) {
-		char *val = (char *)(ipath->fspath->val[i] -
-			(u64)(unsigned long)ipath->fspath->val);
+		char *val = (char *)(ipath->fspath->val[i]);
 		printf("%s\n", val);
 	}
 	btrfs_release_path(&path);

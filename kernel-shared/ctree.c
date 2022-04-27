@@ -1328,6 +1328,7 @@ int btrfs_find_item(struct btrfs_root *fs_root, struct btrfs_path *found_path,
 		ret = 1;
 		goto out;
 	}
+	ret = 0;
 
 out:
 	if (path != found_path)
