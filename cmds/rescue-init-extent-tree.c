@@ -20,6 +20,7 @@ static void print_paths(struct btrfs_root *root, u64 inum)
 	struct btrfs_path path;
 	struct inode_fs_paths *ipath;
 	int i;
+	int ret;
 
 	btrfs_init_path(&path);
 
@@ -29,7 +30,8 @@ static void print_paths(struct btrfs_root *root, u64 inum)
 		return;
 	}
 
-	paths_from_inode(inum, ipath);
+	ret = paths_from_inode(inum, ipath);
+	printf("elem_cnt %d elem_missed %d ret %d\n", ipath->fspath->elem_cnt, ipath->fspath->elem_missed, ret);
 	for (i = 0; i < ipath->fspath->elem_cnt; i++) {
 		char *val = (char *)(ipath->fspath->val[i]);
 		printf("%s\n", val);
