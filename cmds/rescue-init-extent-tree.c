@@ -52,6 +52,58 @@ static void record_root_in_trans(struct btrfs_trans_handle *trans,
 	}
 }
 
+static int clear_space_cache(struct btrfs_trans_handle *trans, u64 block_group)
+{
+	struct btrfs_fs_info *fs_info = trans->fs_info;
+	struct btrfs_root *root = fs_info->tree_root;
+	struct btrfs_path path;
+	struct btrfs_key key = {
+		.objectid = block_group,
+		.type = BTRFS_INODE_ITEM_KEY,
+	};
+	int start_slot, end_slot;
+	int ret;
+
+	btrfs_init_path(&path);
+again:
+	ret = btrfs_search_slot(trans, root, &key, &path, -1, 1);
+	if (ret < 0) {
+		error("Error searching for space cache %d\n", ret);
+		return ret;
+	}
+
+	ret = 0;
+	btrfs_item_key_to_cpu(path.nodes[0], &key, path.slots[0]);
+	if (key.objectid != block_group)
+		goto out;
+
+	start_slot = end_slot = path.slots[0];
+	while (1) {
+		end_slot++;
+		if (end_slot >= btrfs_header_nritems(path.nodes[0])) {
+			ret = btrfs_del_items(trans, root, &path, start_slot,
+					      end_slot - start_slot);
+			if (ret) {
+				error("Couldn't delete space cache %d\n", ret);
+				goto out;
+			}
+			btrfs_release_path(&path);
+			goto again;
+		}
+		btrfs_item_key_to_cpu(path.nodes[0], &key, end_slot);
+		if (key.objectid != block_group)
+			break;
+	}
+
+	ret = btrfs_del_items(trans, root, &path, start_slot,
+			      end_slot - start_slot);
+	if (ret)
+		error("Couldn't delete space cache %d\n", ret);
+out:
+	btrfs_release_path(&path);
+	return ret;
+}
+
 static int btrfs_fsck_reinit_root(struct btrfs_trans_handle *trans,
 				  struct btrfs_root *root)
 {
@@ -157,8 +209,9 @@ static int reinit_global_roots(struct btrfs_trans_handle *trans, u64 objectid)
 	return ret;
 }
 
-static int reset_block_groups(struct btrfs_fs_info *fs_info)
+static int reset_block_groups(struct btrfs_trans_handle *trans)
 {
+	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_block_group *cache;
 	struct btrfs_path path;
 	struct extent_buffer *leaf;
@@ -219,6 +272,11 @@ static int reset_block_groups(struct btrfs_fs_info *fs_info)
 		cache = btrfs_lookup_first_block_group(fs_info, start);
 		if (!cache)
 			break;
+		ret = clear_space_cache(trans, cache->start);
+		if (ret) {
+			error("Failed to clear the space cache\n");
+			break;
+		}
 		cache->cached = 1;
 		start = cache->start + cache->length;
 	}
@@ -358,7 +416,7 @@ static int reinit_extent_tree(struct btrfs_fs_info *fs_info)
 	 * of them again.
 	 */
 	btrfs_free_block_groups(fs_info);
-	ret = reset_block_groups(fs_info);
+	ret = reset_block_groups(trans);
 	if (ret) {
 		fprintf(stderr, "error resetting the block groups\n");
 		return ret;
