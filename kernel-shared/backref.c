@@ -1100,6 +1100,7 @@ char *btrfs_ref_to_path(struct btrfs_root *fs_root, struct btrfs_path *path,
 			free_extent_buffer(eb);
 		ret = inode_ref_info(parent, 0, fs_root, path, &found_key);
 		if (ret > 0) {
+			printf("ref to path failed\n");
 			btrfs_print_leaf(path->nodes[0], 0);
 			ret = -ENOENT;
 		}
@@ -1430,6 +1431,8 @@ static int iterate_inode_refs(u64 inum, struct btrfs_root *fs_root,
 		if (ret < 0)
 			break;
 		if (ret) {
+			printf("inode ref info failed???\n");
+			btrfs_print_leaf(path->nodes[0], 0);
 			ret = found ? 0 : -ENOENT;
 			break;
 		}
