@@ -1011,6 +1011,7 @@ static int delete_item(struct btrfs_root *root, struct btrfs_key *key)
 			PTR_ERR(trans));
 		return PTR_ERR(trans);
 	}
+	trans->reinit_extent_tree = 1;
 
 	ret = btrfs_search_slot(trans, root, key, path, -1, 1);
 	if (ret) {

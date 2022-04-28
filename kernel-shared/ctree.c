@@ -340,6 +340,9 @@ static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
 	u64 new_flags = 0;
 	int ret;
 
+	if (trans->reinit_extent_tree)
+		return 0;
+
 	/*
 	 * Backrefs update rules:
 	 *
