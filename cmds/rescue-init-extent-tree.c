@@ -89,6 +89,7 @@ static int clear_space_cache(struct btrfs_trans_handle *trans, u64 block_group)
 	int start_slot, end_slot;
 	int ret;
 
+	printf("deleting space cache for %llu\n", block_group);
 	btrfs_init_path(&path);
 	ino = space_cache_ino(fs_info, &path, block_group);
 	if (ino == 0)
@@ -105,10 +106,14 @@ again:
 	}
 
 	ret = 0;
+	if (path.slots[0] >= btrfs_header_nritems(path.nodes[0]))
+		goto out;
+
 	btrfs_item_key_to_cpu(path.nodes[0], &key, path.slots[0]);
 	if (key.objectid != ino)
 		goto out;
 
+	printf("deleting [%llu %u %llu]\n", key.objectid, key.type, key.offset);
 	start_slot = end_slot = path.slots[0];
 	while (1) {
 		end_slot++;
@@ -125,6 +130,7 @@ again:
 		btrfs_item_key_to_cpu(path.nodes[0], &key, end_slot);
 		if (key.objectid != ino)
 			break;
+		printf("deleting [%llu %u %llu]\n", key.objectid, key.type, key.offset);
 	}
 
 	ret = btrfs_del_items(trans, root, &path, start_slot,
