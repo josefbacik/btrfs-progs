@@ -472,6 +472,12 @@ static int reinit_extent_tree(struct btrfs_fs_info *fs_info)
 		return ret;
 	}
 
+	ret = reinit_global_roots(trans, BTRFS_CSUM_TREE_OBJECTID);
+	if (ret) {
+		fprintf(stderr, "csum root initialization failed\n");
+		return ret;
+	}
+
 	/*
 	 * Now we have all the in-memory block groups setup so we can make
 	 * allocations properly, and the metadata we care about is safe since we
