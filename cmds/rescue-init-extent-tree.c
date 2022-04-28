@@ -546,7 +546,7 @@ static int insert_empty_extent(struct btrfs_trans_handle *trans,
 	u32 size;
 	int ret;
 
-	if (key->objectid == 7750833868800)
+	if (key->objectid == 3700677820416)
 		printf("doing an insert of the bytenr\n");
 
 	if (key->type == BTRFS_METADATA_ITEM_KEY)
@@ -554,7 +554,7 @@ static int insert_empty_extent(struct btrfs_trans_handle *trans,
 	else
 		num_bytes = key->offset;
 
-	if (in_range(7750833868800, key->objectid, num_bytes))
+	if (in_range(3700677820416, key->objectid, num_bytes))
 		printf("doing an insert that overlaps our bytenr %llu %llu\n", key->objectid, key->offset);
 
 	set_extent_dirty(&inserted, key->objectid, key->objectid + num_bytes - 1);
@@ -637,7 +637,7 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			if (!test_range_bit(&inserted, key.objectid,
 					    key.objectid + key.offset - 1,
 					    EXTENT_DIRTY, 0)) {
-				if (in_range(7750833868800, key.objectid, key.offset)) {
+				if (in_range(3700677820416, key.objectid, key.offset)) {
 					printf("adding a bytenr that overlaps our thing, dumping paths for [%llu, %u, %llu]\n",
 					       orig.objectid, orig.type, orig.offset);
 					print_paths(root, orig.objectid);
@@ -649,7 +649,7 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 					      ret);
 					return ret;
 				}
-			} else if (key.objectid == 7750833868800) {
+			} else if (key.objectid == 3700677820416) {
 				printf("WTF???? we think we already inserted this bytenr?? [%llu, %u, %llu] dumping paths\n",
 				       orig.objectid, orig.type,
 				       orig.offset);
