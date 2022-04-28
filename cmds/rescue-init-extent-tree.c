@@ -52,19 +52,51 @@ static void record_root_in_trans(struct btrfs_trans_handle *trans,
 	}
 }
 
+static u64 space_cache_ino(struct btrfs_fs_info *fs_info, struct btrfs_path *path,
+			   u64 block_group)
+{
+	struct btrfs_root *root = fs_info->tree_root;
+	struct btrfs_free_space_header *header;
+	struct btrfs_key key = {
+		.objectid = BTRFS_FREE_SPACE_OBJECTID,
+		.type = 0,
+		.offset = block_group,
+	};
+	struct btrfs_disk_key disk_key;
+	int ret;
+
+	ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
+	if (ret != 0) {
+		btrfs_release_path(path);
+		return 0;
+	}
+
+	header = btrfs_item_ptr(path->nodes[0], path->slots[0],
+				struct btrfs_free_space_header);
+	btrfs_free_space_key(path->nodes[0], header, &disk_key);
+	btrfs_release_path(path);
+	btrfs_disk_key_to_cpu(&key, &disk_key);
+	return key.objectid;
+}
+
 static int clear_space_cache(struct btrfs_trans_handle *trans, u64 block_group)
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_root *root = fs_info->tree_root;
 	struct btrfs_path path;
-	struct btrfs_key key = {
-		.objectid = block_group,
-		.type = BTRFS_INODE_ITEM_KEY,
-	};
+	struct btrfs_key key;
+	u64 ino;
 	int start_slot, end_slot;
 	int ret;
 
 	btrfs_init_path(&path);
+	ino = space_cache_ino(fs_info, &path, block_group);
+	if (ino == 0)
+		return 0;
+
+	key.objectid = ino;
+	key.type = BTRFS_INODE_ITEM_KEY;
+	key.offset = 0;
 again:
 	ret = btrfs_search_slot(trans, root, &key, &path, -1, 1);
 	if (ret < 0) {
@@ -74,7 +106,7 @@ again:
 
 	ret = 0;
 	btrfs_item_key_to_cpu(path.nodes[0], &key, path.slots[0]);
-	if (key.objectid != block_group)
+	if (key.objectid != ino)
 		goto out;
 
 	start_slot = end_slot = path.slots[0];
@@ -91,7 +123,7 @@ again:
 			goto again;
 		}
 		btrfs_item_key_to_cpu(path.nodes[0], &key, end_slot);
-		if (key.objectid != block_group)
+		if (key.objectid != ino)
 			break;
 	}
 
