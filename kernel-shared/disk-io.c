@@ -2232,6 +2232,7 @@ int btrfs_buffer_uptodate(struct extent_buffer *buf, u64 parent_transid)
 	if (!ret)
 		return ret;
 
+	BUG_ON(!buf->fs_info);
 	ret = verify_parent_transid(&buf->fs_info->extent_cache, buf,
 				    parent_transid,
 				    buf->fs_info->allow_transid_mismatch);
