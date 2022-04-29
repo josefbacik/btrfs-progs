@@ -652,9 +652,9 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 					return ret;
 				}
 			} else if (key.objectid == PROBLEM) {
-				printf("WTF???? we think we already inserted this bytenr?? [%llu, %u, %llu] dumping paths\n",
+				printf("WTF???? we think we already inserted this bytenr?? [%llu, %u, %llu] dumping paths %llu %llu\n",
 				       orig.objectid, orig.type,
-				       orig.offset);
+				       orig.offset, key.objectid, key.offset);
 				print_paths(root, orig.objectid);
 			}
 
