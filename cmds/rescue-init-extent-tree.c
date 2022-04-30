@@ -411,7 +411,7 @@ static int reset_balance(struct btrfs_trans_handle *trans)
 reinit_data_reloc:
 	key.objectid = BTRFS_DATA_RELOC_TREE_OBJECTID;
 	key.type = BTRFS_ROOT_ITEM_KEY;
-	key.offset = (u64)-1;
+	key.offset = 0;
 	root = btrfs_read_fs_root(fs_info, &key);
 	if (IS_ERR(root)) {
 		fprintf(stderr, "Error reading data reloc tree\n");
@@ -419,6 +419,7 @@ reinit_data_reloc:
 		goto out;
 	}
 	record_root_in_trans(trans, root);
+	printf("DID THE DATA RELOC TREE INIT?!\n");
 	ret = btrfs_fsck_reinit_root(trans, root);
 	if (ret)
 		goto out;
