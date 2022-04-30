@@ -414,7 +414,8 @@ reinit_data_reloc:
 	key.offset = 0;
 	root = btrfs_read_fs_root(fs_info, &key);
 	if (IS_ERR(root)) {
-		fprintf(stderr, "Error reading data reloc tree\n");
+		fprintf(stderr, "Error reading data reloc tree %d\n",PTR_ERR(ret));
+		BUG_ON(1);
 		ret = 0;
 		goto out;
 	}
