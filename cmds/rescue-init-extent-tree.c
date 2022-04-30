@@ -325,6 +325,37 @@ static int reset_block_groups(struct btrfs_trans_handle *trans)
 	return 0;
 }
 
+static int reinit_data_reloc_root(struct btrfs_fs_info *fs_info)
+{
+	struct btrfs_trans_handle *trans;
+	struct btrfs_root *root;
+	struct btrfs_key key = {
+		.objectid = BTRFS_DATA_RELOC_TREE_OBJECTID,
+		.type = BTRFS_ROOT_ITEM_KEY,
+	};
+	int ret;
+
+	root = btrfs_read_fs_root(fs_info, &key);
+	if (IS_ERR(root)) {
+		error("Error reading data reloc tree %ld\n", PTR_ERR(root));
+		BUG_ON(1);
+		return PTR_ERR(root);
+	}
+
+	trans = btrfs_start_transaction(root, 0);
+	if (IS_ERR(trans)) {
+		error("error starting transaction for data reloc root");
+		return PTR_ERR(trans);
+	}
+
+	ret = btrfs_fsck_reinit_root(trans, root);
+	if (ret)
+		return ret;
+	ret = btrfs_make_root_dir(trans, root, BTRFS_FIRST_FREE_OBJECTID);
+	if (!ret)
+		ret = btrfs_commit_transaction(trans, root);
+	return ret;
+}
 static int reset_balance(struct btrfs_trans_handle *trans)
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;
@@ -344,10 +375,7 @@ static int reset_balance(struct btrfs_trans_handle *trans)
 	if (ret) {
 		if (ret > 0)
 			ret = 0;
-		if (!ret)
-			goto reinit_data_reloc;
-		else
-			goto out;
+		goto out;
 	}
 
 	ret = btrfs_del_item(trans, root, &path);
@@ -401,30 +429,8 @@ static int reset_balance(struct btrfs_trans_handle *trans)
 		path.slots[0]++;
 	}
 
-	if (del_nr) {
+	if (del_nr)
 		ret = btrfs_del_items(trans, root, &path, del_slot, del_nr);
-		if (ret)
-			goto out;
-	}
-	btrfs_release_path(&path);
-
-reinit_data_reloc:
-	key.objectid = BTRFS_DATA_RELOC_TREE_OBJECTID;
-	key.type = BTRFS_ROOT_ITEM_KEY;
-	key.offset = 0;
-	root = btrfs_read_fs_root(fs_info, &key);
-	if (IS_ERR(root)) {
-		fprintf(stderr, "Error reading data reloc tree %d\n",PTR_ERR(ret));
-		BUG_ON(1);
-		ret = 0;
-		goto out;
-	}
-	record_root_in_trans(trans, root);
-	printf("DID THE DATA RELOC TREE INIT?!\n");
-	ret = btrfs_fsck_reinit_root(trans, root);
-	if (ret)
-		goto out;
-	ret = btrfs_make_root_dir(trans, root, BTRFS_FIRST_FREE_OBJECTID);
 out:
 	btrfs_release_path(&path);
 	return ret;
@@ -525,6 +531,9 @@ static int reinit_extent_tree(struct btrfs_fs_info *fs_info)
 	ret = btrfs_commit_transaction(trans, fs_info->tree_root);
 	if (ret)
 		error("failed to commit the transaction");
+	else
+		ret = reinit_data_reloc_root(fs_info);
+
 	return ret;
 }
 
