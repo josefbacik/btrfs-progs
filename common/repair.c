@@ -274,14 +274,18 @@ int btrfs_fix_block_accounting(struct btrfs_trans_handle *trans)
 	int ret = 0;
 
 	ret = btrfs_run_delayed_refs(trans, -1);
-	if (ret)
+	if (ret) {
+		error("delayed refs failed\n");
 		return ret;
+	}
 
 	extent_io_tree_init(&used);
 
 	ret = btrfs_mark_used_blocks(fs_info, &used);
-	if (ret)
+	if  (ret) {
+		error("mark blocks used failed\n");
 		goto out;
+	}
 
 	start = 0;
 	while(1) {
@@ -306,8 +310,10 @@ int btrfs_fix_block_accounting(struct btrfs_trans_handle *trans)
 		bytes_used += end - start + 1;
 		ret = btrfs_update_block_group(trans, start, end - start + 1,
 					       1, 0);
-		if (ret)
+		if (ret) {
+			error("update block group failed");
 			goto out;
+		}
 		clear_extent_dirty(&used, start, end);
 	}
 	btrfs_set_super_bytes_used(fs_info->super_copy, bytes_used);

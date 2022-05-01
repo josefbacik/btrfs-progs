@@ -903,8 +903,10 @@ static int fix_block_accounting(struct btrfs_fs_info *fs_info)
 	}
 
 	ret = btrfs_fix_block_accounting(trans);
-	if (ret)
+	if (ret) {
+		printf("FIX BLOCK ACCOUNTING FAILED %d\n", ret);
 		return ret;
+	}
 	return btrfs_commit_transaction(trans, fs_info->tree_root);
 }
 
@@ -960,6 +962,8 @@ int btrfs_init_extent_tree(const char *path)
 		goto out;
 	printf("doing block accounting\n");
 	ret = fix_block_accounting(fs_info);
+	if (ret)
+		error("The commit failed???? %d\n", ret);
 out:
 	if (fs_info->excluded_extents) {
 		extent_io_tree_cleanup(fs_info->excluded_extents);
