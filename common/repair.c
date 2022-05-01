@@ -311,7 +311,7 @@ int btrfs_fix_block_accounting(struct btrfs_trans_handle *trans)
 		ret = btrfs_update_block_group(trans, start, end - start + 1,
 					       1, 0);
 		if (ret) {
-			error("update block group failed");
+			error("update block group failed %llu %llu ret %d", start, end - start + 1, ret);
 			goto out;
 		}
 		clear_extent_dirty(&used, start, end);
