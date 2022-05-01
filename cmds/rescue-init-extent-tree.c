@@ -954,9 +954,11 @@ int btrfs_init_extent_tree(const char *path)
 	ret = record_root(fs_info->tree_root);
 	if (ret)
 		goto out;
+	printf("doing roots\n");
 	ret = record_roots(fs_info);
 	if (ret)
 		goto out;
+	printf("doing block accounting\n");
 	ret = fix_block_accounting(fs_info);
 out:
 	if (fs_info->excluded_extents) {
@@ -964,6 +966,7 @@ out:
 		free(fs_info->excluded_extents);
 	}
 	extent_io_tree_cleanup(&inserted);
+	printf("doing close???\n");
 	close_ctree_fs_info(fs_info);
 	return ret;
 }
