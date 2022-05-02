@@ -621,6 +621,7 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 		if (level == 0) {
 			struct btrfs_key found_key, orig;
 			struct btrfs_file_extent_item *fi;
+			struct btrfs_block_group *block_group;
 
 			btrfs_item_key_to_cpu(eb, &found_key, i);
 			btrfs_item_key_to_cpu(eb, &orig, i);
@@ -646,6 +647,12 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			/* Adjust the offset for the backref. */
 			found_key.offset -= btrfs_file_extent_offset(eb, fi);
 
+			block_group = btrfs_lookup_block_group(root->fs_info, key.objectid);
+			if (!block_group) {
+				printf("We're tyring to add a data extent that we don't have a block group for, delete %llu,%u,%llu on root %llu\n", orig.objectid, orig.type, orig.offset, root->root_key.objectid);
+				print_paths(root, orig.objectid);
+				BUG_ON(1);
+			}
 			/* New extent, insert the extent item first. */
 			if (!test_range_bit(&inserted, key.objectid,
 					    key.objectid + key.offset - 1,
