@@ -1774,6 +1774,8 @@ static int update_block_group(struct btrfs_trans_handle *trans, u64 bytenr,
 	while(total) {
 		cache = btrfs_lookup_block_group(info, bytenr);
 		if (!cache) {
+			printf("couldn't find a block group at bytenr %llu total left %llu\n",
+				bytenr, total);
 			return -1;
 		}
 		byte_in_group = bytenr - cache->start;
