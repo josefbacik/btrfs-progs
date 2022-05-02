@@ -1754,6 +1754,15 @@ static int do_chunk_alloc(struct btrfs_trans_handle *trans,
 	return 0;
 }
 
+static inline bool in_range(struct btrfs_block_group *bg, u64 bytenr)
+{
+	if (bytenr < bg->start)
+		return false;
+	if (bg->start + bg->length < bytenr)
+		return false;
+	return true;
+}
+
 static int update_block_group(struct btrfs_trans_handle *trans, u64 bytenr,
 			      u64 num_bytes, int alloc, int mark_free)
 {
@@ -1774,8 +1783,15 @@ static int update_block_group(struct btrfs_trans_handle *trans, u64 bytenr,
 	while(total) {
 		cache = btrfs_lookup_block_group(info, bytenr);
 		if (!cache) {
+			struct rb_node *n;
 			printf("couldn't find a block group at bytenr %llu total left %llu\n",
 				bytenr, total);
+			for (n = rb_first(&info->block_group_cache_tree); n; n = rb_next(n)) {
+				cache = rb_entry(n, struct btrfs_block_group,
+						 cache_node);
+				printf("cache %llu %llu in range %s\n", cache->start,
+				       cache->start + cache->length, in_range(cache, bytenr) ? "yes" : "no");
+			}
 			return -1;
 		}
 		byte_in_group = bytenr - cache->start;
