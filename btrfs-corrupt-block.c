@@ -1362,7 +1362,7 @@ int main(int argc, char **argv)
 	radix_tree_init();
 	cache_tree_init(&root_cache);
 
-	root = open_ctree(dev, 0, OPEN_CTREE_WRITES);
+	root = open_ctree(dev, 0, OPEN_CTREE_WRITES | OPEN_CTREE_ALLOW_TRANSID_MISMATCH);
 	if (!root) {
 		fprintf(stderr, "Open ctree failed\n");
 		exit(1);
