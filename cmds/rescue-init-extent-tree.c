@@ -141,6 +141,7 @@ static int process_leaf_item(struct btrfs_root *root,
 		error("couldn't start a trans handle %d", (int)PTR_ERR(trans));
 		return PTR_ERR(trans);
 	}
+	trans->reinit_extent_tree = true;
 
 	btrfs_init_path(&path);
 	ret = btrfs_search_slot(trans, root, &key, &path, -1, 1);
@@ -168,6 +169,7 @@ static int look_for_bad_extents(struct btrfs_root *root,
 				struct extent_buffer *eb,
 				u64 *current)
 {
+	int pct;
 	int i, ret;
 
 	for (i = 0; i < btrfs_header_nritems(eb); i++) {
@@ -195,8 +197,9 @@ static int look_for_bad_extents(struct btrfs_root *root,
 	}
 
 	*current += root->fs_info->nodesize;
-	printf("\rprocessed %llu of %llu possible bytes",
-	       *current, btrfs_root_used(&root->root_item));
+	pct = (int)((*current * 100ULL) / btrfs_root_used(&root->root_item));
+	printf("\rprocessed %llu of %llu possible bytes, %d%%",
+	       *current, btrfs_root_used(&root->root_item), pct);
 	return 0;
 }
 
@@ -210,6 +213,7 @@ static int clear_bad_extents(struct btrfs_root *root)
 		printf("searching %llu for bad extents\n",
 		       root->root_key.objectid);
 		ret = look_for_bad_extents(root, root->node, &current);
+		printf("\n");
 	} while (ret == 1);
 
 	return ret;
@@ -512,7 +516,6 @@ static int reinit_data_reloc_root(struct btrfs_fs_info *fs_info)
 	root = btrfs_read_fs_root(fs_info, &key);
 	if (IS_ERR(root)) {
 		error("Error reading data reloc tree %ld\n", PTR_ERR(root));
-		BUG_ON(1);
 		return PTR_ERR(root);
 	}
 
@@ -712,7 +715,6 @@ static int reinit_extent_tree(struct btrfs_fs_info *fs_info)
 	ret = reinit_data_reloc_root(fs_info);
 	if (ret) {
 		error("failed to reinit the data reloc root");
-		return ret;
 	}
 
 	ret = foreach_root(fs_info, clear_bad_extents);
@@ -790,7 +792,7 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 	u64 flags;
 	u32 nodesize = root->fs_info->nodesize;
 	int i = 0, level = btrfs_header_level(eb);
-	int ret;
+	int ret, pct;
 
 	if (btrfs_header_flag(eb, BTRFS_HEADER_FLAG_RELOC) ||
 	    btrfs_header_owner(eb) != ref_root) {
@@ -808,7 +810,6 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 		if (level == 0) {
 			struct btrfs_key found_key, orig;
 			struct btrfs_file_extent_item *fi;
-			struct btrfs_block_group *block_group;
 
 			btrfs_item_key_to_cpu(eb, &found_key, i);
 			btrfs_item_key_to_cpu(eb, &orig, i);
@@ -834,12 +835,6 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			/* Adjust the offset for the backref. */
 			found_key.offset -= btrfs_file_extent_offset(eb, fi);
 
-			block_group = btrfs_lookup_block_group(root->fs_info, key.objectid);
-			if (!block_group) {
-				printf("We're tyring to add a data extent that we don't have a block group for, delete %llu,%u,%llu on root %llu\n", orig.objectid, orig.type, orig.offset, root->root_key.objectid);
-				print_paths(root, orig.objectid);
-				BUG_ON(1);
-			}
 			/* New extent, insert the extent item first. */
 			if (!test_range_bit(&inserted, key.objectid,
 					    key.objectid + key.offset - 1,
@@ -946,8 +941,9 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 	}
 
 	*current += root->fs_info->nodesize;
-	printf("\rprocessed %llu of %llu possible bytes",
-	       *current, btrfs_root_used(&root->root_item));
+	pct = (int)((*current * 100ULL) / btrfs_root_used(&root->root_item));
+	printf("\rprocessed %llu of %llu possible bytes, %d%%",
+	       *current, btrfs_root_used(&root->root_item), pct);
 	fflush(stdout);
 
 	return 0;
