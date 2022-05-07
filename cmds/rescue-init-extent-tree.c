@@ -15,6 +15,8 @@
 
 #define PROBLEM 10467695652864ULL
 
+typedef int (root_cb_t)(struct btrfs_root *root);
+
 static struct extent_io_tree inserted;
 
 static void print_paths(struct btrfs_root *root, u64 inum)
@@ -42,6 +44,176 @@ static void print_paths(struct btrfs_root *root, u64 inum)
 	free_ipath(ipath);
 }
 
+static int foreach_root(struct btrfs_fs_info *fs_info,
+			root_cb_t cb)
+{
+	struct btrfs_root *root;
+	struct btrfs_key key = { .type = BTRFS_ROOT_ITEM_KEY };
+	struct btrfs_path path;
+	int ret;
+
+	btrfs_init_path(&path);
+again:
+	ret = btrfs_search_slot(NULL, fs_info->tree_root, &key, &path, 0, 0);
+	if (ret < 0) {
+		error("Couldn't search tree root?\n");
+		return ret;
+	}
+
+	if (ret > 0) {
+		if (path.slots[0] >= btrfs_header_nritems(path.nodes[0])) {
+			ret = btrfs_next_item(fs_info->tree_root, &path);
+			if (ret)
+				goto out;
+		}
+	}
+
+	do {
+		struct btrfs_key found_key;
+
+		btrfs_item_key_to_cpu(path.nodes[0], &found_key,
+				      path.slots[0]);
+		if (found_key.type != BTRFS_ROOT_ITEM_KEY)
+			continue;
+
+		if (found_key.objectid == BTRFS_EXTENT_TREE_OBJECTID)
+			continue;
+
+		root = btrfs_read_fs_root(fs_info, &found_key);
+		if (IS_ERR(root)) {
+			error("Error loading root");
+			ret = PTR_ERR(root);
+			break;
+		}
+
+		ret = cb(root);
+		if (ret) {
+			printf("wtf\n");
+			break;
+		}
+		memcpy(&key, &root->root_key, sizeof(key));
+		key.offset++;
+		btrfs_release_path(&path);
+		goto again;
+	} while ((ret = btrfs_next_item(fs_info->tree_root, &path)) == 0);
+
+out:
+	if (ret > 0)
+		ret = 0;
+
+	if (ret)
+		printf("it failed?? %d\n", ret);
+	btrfs_release_path(&path);
+	return ret;
+}
+
+static int process_leaf_item(struct btrfs_root *root,
+			     struct extent_buffer *eb, int slot)
+{
+	struct btrfs_trans_handle *trans;
+	struct btrfs_file_extent_item *fi;
+	struct btrfs_block_group *block_group;
+	struct btrfs_path path;
+	struct btrfs_key key;
+	u64 bytenr;
+	int ret;
+
+	btrfs_item_key_to_cpu(eb, &key, slot);
+	if (key.type != BTRFS_EXTENT_DATA_KEY)
+		return 0;
+	fi = btrfs_item_ptr(eb, slot, struct btrfs_file_extent_item);
+	if (btrfs_file_extent_type(eb, fi) ==
+	    BTRFS_FILE_EXTENT_INLINE)
+		return 0;
+	bytenr = btrfs_file_extent_disk_bytenr(eb, fi);
+	if (bytenr == 0)
+		return 0;
+
+	block_group = btrfs_lookup_block_group(eb->fs_info, bytenr);
+	if (block_group)
+		return 0;
+
+	printf("\nFound an extent we don't have a block group for in the file\n");
+	print_paths(root, key.objectid);
+	printf("Deleting\n");
+	trans = btrfs_start_transaction(root, 1);
+	if (IS_ERR(trans)) {
+		error("couldn't start a trans handle %d", (int)PTR_ERR(trans));
+		return PTR_ERR(trans);
+	}
+
+	btrfs_init_path(&path);
+	ret = btrfs_search_slot(trans, root, &key, &path, -1, 1);
+	if (ret) {
+		if (ret > 0)
+			ret = -ENOENT;
+		error("error searching for key?? %d", ret);
+		return ret;
+	}
+	ret = btrfs_del_item(trans, root, &path);
+	if (ret) {
+		error("couldn't delete item %d", ret);
+		return ret;
+	}
+	btrfs_release_path(&path);
+	ret = btrfs_commit_transaction(trans, root);
+	if (ret) {
+		error("error committing transaction %d", ret);
+		return ret;
+	}
+	return 1;
+}
+
+static int look_for_bad_extents(struct btrfs_root *root,
+				struct extent_buffer *eb,
+				u64 *current)
+{
+	int i, ret;
+
+	for (i = 0; i < btrfs_header_nritems(eb); i++) {
+		if (btrfs_header_level(eb) != 0) {
+			struct extent_buffer *tmp;
+			u64 bytenr, gen;
+
+			bytenr = btrfs_node_blockptr(eb, i);
+			gen = btrfs_node_ptr_generation(eb, i);
+			tmp = read_tree_block(eb->fs_info, bytenr, gen);
+			if (IS_ERR(tmp)) {
+				error("couldn't read block, please run btrfs rescue tree-recover");
+				return PTR_ERR(tmp);
+			}
+			ret = look_for_bad_extents(root, tmp, current);
+			free_extent_buffer_nocache(tmp);
+			if (ret)
+				return ret;
+			continue;
+		}
+
+		ret = process_leaf_item(root, eb, i);
+		if (ret)
+			return ret;
+	}
+
+	*current += root->fs_info->nodesize;
+	printf("\rprocessed %llu of %llu possible bytes",
+	       *current, btrfs_root_used(&root->root_item));
+	return 0;
+}
+
+static int clear_bad_extents(struct btrfs_root *root)
+{
+	int ret;
+
+	do {
+		u64 current = 0;
+
+		printf("searching %llu for bad extents\n",
+		       root->root_key.objectid);
+		ret = look_for_bad_extents(root, root->node, &current);
+	} while (ret == 1);
+
+	return ret;
+}
 
 static void record_root_in_trans(struct btrfs_trans_handle *trans,
 				 struct btrfs_root *root)
@@ -188,6 +360,8 @@ static int btrfs_fsck_reinit_root(struct btrfs_trans_handle *trans,
 	if (old->start == c->start) {
 		btrfs_set_root_generation(&root->root_item,
 					  trans->transid);
+		btrfs_set_root_generation_v2(&root->root_item,
+					     trans->transid);
 		root->root_item.level = btrfs_header_level(root->node);
 		ret = btrfs_update_root(trans, fs_info->tree_root,
 					&root->root_key, &root->root_item);
@@ -356,6 +530,7 @@ static int reinit_data_reloc_root(struct btrfs_fs_info *fs_info)
 		ret = btrfs_commit_transaction(trans, root);
 	return ret;
 }
+
 static int reset_balance(struct btrfs_trans_handle *trans)
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;
@@ -529,10 +704,22 @@ static int reinit_extent_tree(struct btrfs_fs_info *fs_info)
 
 
 	ret = btrfs_commit_transaction(trans, fs_info->tree_root);
-	if (ret)
+	if (ret) {
 		error("failed to commit the transaction");
-	else
-		ret = reinit_data_reloc_root(fs_info);
+		return ret;
+	}
+
+	ret = reinit_data_reloc_root(fs_info);
+	if (ret) {
+		error("failed to reinit the data reloc root");
+		return ret;
+	}
+
+	ret = foreach_root(fs_info, clear_bad_extents);
+	if (ret) {
+		error("failed to clear bad extents");
+		return ret;
+	}
 
 	return ret;
 }
@@ -776,6 +963,7 @@ static int record_root(struct btrfs_root *root)
 	int ret;
 	bool skinny_metadata = btrfs_fs_incompat(root->fs_info, SKINNY_METADATA);
 
+	printf("Recording extents for root %llu\n", root->root_key.objectid);
 	trans = btrfs_start_transaction(root, 0);
 	if (IS_ERR(trans)) {
 		error("error starting transaction");
@@ -832,69 +1020,6 @@ static int record_root(struct btrfs_root *root)
 	ret = btrfs_commit_transaction(trans, root);
 	if (ret)
 		error("failed to commit transaction %d", ret);
-	return ret;
-}
-
-static int record_roots(struct btrfs_fs_info *fs_info)
-{
-	struct btrfs_root *root;
-	struct btrfs_key key = { .type = BTRFS_ROOT_ITEM_KEY };
-	struct btrfs_path path;
-	int ret;
-
-	btrfs_init_path(&path);
-again:
-	ret = btrfs_search_slot(NULL, fs_info->tree_root, &key, &path, 0, 0);
-	if (ret < 0) {
-		error("Couldn't search tree root?\n");
-		return ret;
-	}
-
-	if (ret > 0) {
-		if (path.slots[0] >= btrfs_header_nritems(path.nodes[0])) {
-			ret = btrfs_next_item(fs_info->tree_root, &path);
-			if (ret)
-				goto out;
-		}
-	}
-
-	do {
-		struct btrfs_key found_key;
-
-		btrfs_item_key_to_cpu(path.nodes[0], &found_key,
-				      path.slots[0]);
-		if (found_key.type != BTRFS_ROOT_ITEM_KEY)
-			continue;
-
-		if (found_key.objectid == BTRFS_EXTENT_TREE_OBJECTID)
-			continue;
-
-		root = btrfs_read_fs_root(fs_info, &found_key);
-		if (IS_ERR(root)) {
-			error("Error loading root");
-			ret = PTR_ERR(root);
-			break;
-		}
-
-		printf("Recording extents for root %llu\n", found_key.objectid);
-		ret = record_root(root);
-		if (ret) {
-			printf("wtf\n");
-			break;
-		}
-		memcpy(&key, &root->root_key, sizeof(key));
-		key.offset++;
-		btrfs_release_path(&path);
-		goto again;
-	} while ((ret = btrfs_next_item(fs_info->tree_root, &path)) == 0);
-
-out:
-	if (ret > 0)
-		ret = 0;
-
-	if (ret)
-		printf("it failed?? %d\n", ret);
-	btrfs_release_path(&path);
 	return ret;
 }
 
@@ -964,7 +1089,7 @@ int btrfs_init_extent_tree(const char *path)
 	if (ret)
 		goto out;
 	printf("doing roots\n");
-	ret = record_roots(fs_info);
+	ret = foreach_root(fs_info, record_root);
 	if (ret)
 		goto out;
 	printf("doing block accounting\n");
