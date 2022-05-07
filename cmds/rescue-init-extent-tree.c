@@ -24,7 +24,6 @@ static void print_paths(struct btrfs_root *root, u64 inum)
 	struct btrfs_path path;
 	struct inode_fs_paths *ipath;
 	int i;
-	int ret;
 
 	btrfs_init_path(&path);
 
@@ -34,8 +33,7 @@ static void print_paths(struct btrfs_root *root, u64 inum)
 		return;
 	}
 
-	ret = paths_from_inode(inum, ipath);
-	printf("elem_cnt %d elem_missed %d ret %d\n", ipath->fspath->elem_cnt, ipath->fspath->elem_missed, ret);
+	paths_from_inode(inum, ipath);
 	for (i = 0; i < ipath->fspath->elem_cnt; i++) {
 		char *val = (char *)(ipath->fspath->val[i]);
 		printf("%s\n", val);
@@ -116,7 +114,7 @@ static int process_leaf_item(struct btrfs_root *root,
 	struct btrfs_path path;
 	struct btrfs_key key;
 	u64 bytenr;
-	int ret;
+	int ret, main_level = 0;
 
 	btrfs_item_key_to_cpu(eb, &key, slot);
 	if (key.type != BTRFS_EXTENT_DATA_KEY)
@@ -135,7 +133,6 @@ static int process_leaf_item(struct btrfs_root *root,
 
 	printf("\nFound an extent we don't have a block group for in the file\n");
 	print_paths(root, key.objectid);
-	printf("Deleting\n");
 	trans = btrfs_start_transaction(root, 1);
 	if (IS_ERR(trans)) {
 		error("couldn't start a trans handle %d", (int)PTR_ERR(trans));
@@ -151,6 +148,14 @@ static int process_leaf_item(struct btrfs_root *root,
 		error("error searching for key?? %d", ret);
 		return ret;
 	}
+
+	while (path.nodes[main_level] != NULL) main_level++;
+	main_level--;
+	printf("Deleting [%llu, %u, %llu] root %llu path top %llu top slot %d leaf %llu slot %d\n", key.objectid, key.type,
+	       key.offset, root->node->start,
+	       path.nodes[main_level]->start,
+	       path.slots[main_level],
+	       path.nodes[0]->start, path.slots[0]);
 	ret = btrfs_del_item(trans, root, &path);
 	if (ret) {
 		error("couldn't delete item %d", ret);
