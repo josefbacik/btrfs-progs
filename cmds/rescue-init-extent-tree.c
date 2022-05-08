@@ -127,9 +127,14 @@ static int process_leaf_item(struct btrfs_root *root,
 	if (bytenr == 0)
 		return 0;
 
+	if (bytenr == PROBLEM)
+		printf("WE FOUND THE BAD EXTENT, WE SHOULD DELETE IT\n");
+
 	block_group = btrfs_lookup_block_group(eb->fs_info, bytenr);
-	if (block_group)
+	if (block_group) {
+		printf("WTF IT DIDN'T DELETE IT!!\n");
 		return 0;
+	}
 
 	printf("\nFound an extent we don't have a block group for in the file\n");
 	print_paths(root, key.objectid);
@@ -149,6 +154,8 @@ static int process_leaf_item(struct btrfs_root *root,
 		return ret;
 	}
 
+	if (key.objectid == PROBLEM)
+		printf("DELETING IT????\n");
 	while (path.nodes[main_level] != NULL) main_level++;
 	main_level--;
 	printf("Deleting [%llu, %u, %llu] root %llu path top %llu top slot %d leaf %llu slot %d\n", key.objectid, key.type,
