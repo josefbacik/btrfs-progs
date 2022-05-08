@@ -202,7 +202,10 @@ static int look_for_bad_extents(struct btrfs_root *root,
 	}
 
 	*current += root->fs_info->nodesize;
-	pct = (int)((*current * 100ULL) / btrfs_root_used(&root->root_item));
+	if (btrfs_root_used(&root->root_item))
+		pct = (int)((*current * 100ULL) / btrfs_root_used(&root->root_item));
+	else
+		pct = 0;
 	printf("\rprocessed %llu of %llu possible bytes, %d%%",
 	       *current, btrfs_root_used(&root->root_item), pct);
 	return 0;
@@ -946,7 +949,10 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 	}
 
 	*current += root->fs_info->nodesize;
-	pct = (int)((*current * 100ULL) / btrfs_root_used(&root->root_item));
+	if (btrfs_root_used(&root->root_item))
+		pct = (int)((*current * 100ULL) / btrfs_root_used(&root->root_item));
+	else
+		pct = 0;
 	printf("\rprocessed %llu of %llu possible bytes, %d%%",
 	       *current, btrfs_root_used(&root->root_item), pct);
 	fflush(stdout);
