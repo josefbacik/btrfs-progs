@@ -18,8 +18,8 @@
 
 #include "common/rbtree-utils.h"
 
-int rb_insert(struct rb_root *root, struct rb_node *node,
-	      rb_compare_nodes comp)
+struct rb_node *rb_insert_node(struct rb_root *root, struct rb_node *node,
+			       rb_compare_nodes comp)
 {
 	struct rb_node **p = &root->rb_node;
 	struct rb_node *parent = NULL;
@@ -34,12 +34,19 @@ int rb_insert(struct rb_root *root, struct rb_node *node,
 		else if (ret > 0)
 			p = &(*p)->rb_right;
 		else
-			return -EEXIST;
+			return parent;
 	}
 
 	rb_link_node(node, parent, p);
 	rb_insert_color(node, root);
-	return 0;
+	return NULL;
+}
+
+int rb_insert(struct rb_root *root, struct rb_node *node,
+	      rb_compare_nodes comp)
+{
+	struct rb_node *exist = rb_insert_node(root, node, comp);
+	return (exist != NULL) ? -EEXIST : 0;
 }
 
 struct rb_node *rb_search(struct rb_root *root, void *key, rb_compare_keys comp,

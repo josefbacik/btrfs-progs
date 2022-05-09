@@ -1,15 +1,16 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 
+#include <unistd.h>
 #include "kerncompat.h"
 #include "cmds/rescue.h"
 #include "common/repair.h"
 #include "common/messages.h"
+#include "common/rbtree-utils.h"
 #include "mkfs/common.h"
 #include "kernel-shared/ctree.h"
 #include "kernel-shared/disk-io.h"
 #include "kernel-shared/volumes.h"
 #include "kernel-shared/transaction.h"
-
 
 #include "kernel-shared/backref.h"
 
@@ -18,6 +19,67 @@
 typedef int (root_cb_t)(struct btrfs_root *root);
 
 static struct extent_io_tree inserted;
+static struct rb_root data_extents = RB_ROOT;
+
+struct data_extent {
+	u64 bytenr;
+	u64 len;
+	u64 gen;
+	u64 root_id;
+	struct btrfs_key key;
+	struct rb_node n;
+};
+
+static bool in_range(u64 val, u64 start, u64 len)
+{
+	if (val < start)
+		return false;
+	if (start + len < val)
+		return false;
+	return true;
+}
+
+static void data_extent_free(struct rb_node *n)
+{
+	struct data_extent *de = rb_entry(n, struct data_extent, n);
+	free(de);
+}
+FREE_RB_BASED_TREE(data_extents, data_extent_free);
+
+static int data_extent_compare(struct rb_node *node1, struct rb_node *node2)
+{
+	struct data_extent *exist = rb_entry(node1, struct data_extent, n);
+	struct data_extent *ins = rb_entry(node2, struct data_extent, n);
+
+	if (in_range(ins->bytenr, exist->bytenr, exist->len))
+		return 0;
+	if (ins->bytenr < exist->bytenr)
+		return -1;
+	return 1;
+}
+
+static struct data_extent *add_data_extent(u64 bytenr, u64 len, u64 root_id, u64 gen,
+					   struct btrfs_key *key)
+{
+	struct data_extent *de;
+	struct rb_node *n;
+	de = calloc(1, sizeof(struct data_extent));
+	if (!de)
+		return ERR_PTR(-ENOMEM);
+
+	de->bytenr = bytenr;
+	de->len = len;
+	de->gen = gen;
+	de->root_id = root_id;
+	memcpy(&de->key, key, sizeof(struct btrfs_key));
+
+	n = rb_insert_node(&data_extents, &de->n, data_extent_compare);
+	if (n) {
+		free(de);
+		de = rb_entry(n, struct data_extent, n);
+	}
+	return de;
+}
 
 static void print_paths(struct btrfs_root *root, u64 inum)
 {
@@ -105,39 +167,13 @@ out:
 	return ret;
 }
 
-static int process_leaf_item(struct btrfs_root *root,
-			     struct extent_buffer *eb, int slot)
+static int delete_item(struct btrfs_root *root, struct btrfs_key *key)
 {
 	struct btrfs_trans_handle *trans;
-	struct btrfs_file_extent_item *fi;
-	struct btrfs_block_group *block_group;
 	struct btrfs_path path;
-	struct btrfs_key key;
-	u64 bytenr;
 	int ret, main_level = 0;
 
-	btrfs_item_key_to_cpu(eb, &key, slot);
-	if (key.type != BTRFS_EXTENT_DATA_KEY)
-		return 0;
-	fi = btrfs_item_ptr(eb, slot, struct btrfs_file_extent_item);
-	if (btrfs_file_extent_type(eb, fi) ==
-	    BTRFS_FILE_EXTENT_INLINE)
-		return 0;
-	bytenr = btrfs_file_extent_disk_bytenr(eb, fi);
-	if (bytenr == 0)
-		return 0;
-
-	if (bytenr == PROBLEM)
-		printf("WE FOUND THE BAD EXTENT, WE SHOULD DELETE IT\n");
-
-	block_group = btrfs_lookup_block_group(eb->fs_info, bytenr);
-	if (block_group) {
-		printf("WTF IT DIDN'T DELETE IT!!\n");
-		return 0;
-	}
-
-	printf("\nFound an extent we don't have a block group for in the file\n");
-	print_paths(root, key.objectid);
+	print_paths(root, key->objectid);
 	trans = btrfs_start_transaction(root, 1);
 	if (IS_ERR(trans)) {
 		error("couldn't start a trans handle %d", (int)PTR_ERR(trans));
@@ -146,7 +182,7 @@ static int process_leaf_item(struct btrfs_root *root,
 	trans->reinit_extent_tree = true;
 
 	btrfs_init_path(&path);
-	ret = btrfs_search_slot(trans, root, &key, &path, -1, 1);
+	ret = btrfs_search_slot(trans, root, key, &path, -1, 1);
 	if (ret) {
 		if (ret > 0)
 			ret = -ENOENT;
@@ -154,12 +190,13 @@ static int process_leaf_item(struct btrfs_root *root,
 		return ret;
 	}
 
-	if (key.objectid == PROBLEM)
+	if (key->objectid == PROBLEM)
 		printf("DELETING IT????\n");
 	while (path.nodes[main_level] != NULL) main_level++;
 	main_level--;
-	printf("Deleting [%llu, %u, %llu] root %llu path top %llu top slot %d leaf %llu slot %d\n", key.objectid, key.type,
-	       key.offset, root->node->start,
+	printf("Deleting [%llu, %u, %llu] root %llu path top %llu top slot %d leaf %llu slot %d\n",
+	       key->objectid, key->type,
+	       key->offset, root->node->start,
 	       path.nodes[main_level]->start,
 	       path.slots[main_level],
 	       path.nodes[0]->start, path.slots[0]);
@@ -174,6 +211,86 @@ static int process_leaf_item(struct btrfs_root *root,
 		error("error committing transaction %d", ret);
 		return ret;
 	}
+	return 0;
+}
+
+static int process_leaf_item(struct btrfs_root *root,
+			     struct extent_buffer *eb, int slot)
+{
+	struct btrfs_file_extent_item *fi;
+	struct btrfs_block_group *block_group;
+	struct data_extent *de;
+	struct btrfs_key key;
+	u64 bytenr, num_bytes, gen;
+	int ret;
+
+	btrfs_item_key_to_cpu(eb, &key, slot);
+	if (key.type != BTRFS_EXTENT_DATA_KEY)
+		return 0;
+	fi = btrfs_item_ptr(eb, slot, struct btrfs_file_extent_item);
+	if (btrfs_file_extent_type(eb, fi) ==
+	    BTRFS_FILE_EXTENT_INLINE)
+		return 0;
+	bytenr = btrfs_file_extent_disk_bytenr(eb, fi);
+	if (bytenr == 0)
+		return 0;
+
+	block_group = btrfs_lookup_block_group(eb->fs_info, bytenr);
+	if (!block_group) {
+		printf("\nFound an extent we don't have a block group for in the file\n");
+		goto delete_it;
+	}
+
+	num_bytes = btrfs_file_extent_disk_num_bytes(eb, fi);
+	gen = btrfs_file_extent_generation(eb, fi);
+
+	de = add_data_extent(bytenr, num_bytes, root->root_key.objectid, gen,
+			     &key);
+	if (IS_ERR(de)) {
+		error("couldn't allocate data extent\n");
+		return PTR_ERR(de);
+	}
+
+	if (de->bytenr != bytenr || de->len != num_bytes) {
+		static int fixes = 0;
+		struct btrfs_key root_key = {
+			.objectid = de->root_id,
+			.type = BTRFS_EXTENT_TREE_OBJECTID,
+		};
+
+		printf("\nFound an overlapping extent orig [%llu %llu] current [%llu %llu]\n",
+		       de->bytenr, de->bytenr + de->len,
+		       bytenr, bytenr + num_bytes);
+		if (fixes++ < 5) {
+			int i;
+
+			printf("I'm going to give you 10 seconds to bail if that doesn't look right, I'll only ask 5 times before I just assume I didn't break anything");
+			for (i = 0; i < 10; i++) {
+				printf("%d\n", i + 1);
+				sleep(1);
+			}
+		}
+		if (de->gen >= gen) {
+			printf("The newly found extent is older, deleting it\n");
+			goto delete_it;
+		}
+
+		root = btrfs_read_fs_root(root->fs_info, &root_key);
+		if (IS_ERR(root)) {
+			error("Error loading original root?");
+			return PTR_ERR(root);
+		}
+
+		memcpy(&key, &de->key, sizeof(struct btrfs_key));
+		printf("The original extent is older, deleting it\n");
+		goto delete_it;
+	}
+
+	return 0;
+delete_it:
+	ret = delete_item(root, &key);
+	if (ret)
+		return ret;
 	return 1;
 }
 
@@ -741,15 +858,6 @@ static int reinit_extent_tree(struct btrfs_fs_info *fs_info)
 	return ret;
 }
 
-static bool in_range(u64 val, u64 start, u64 len)
-{
-	if (val < start)
-		return false;
-	if (start + len < val)
-		return false;
-	return true;
-}
-
 static int insert_empty_extent(struct btrfs_trans_handle *trans,
 			       struct btrfs_key *key, u64 generation,
 			       u64 flags)
@@ -1111,6 +1219,8 @@ int btrfs_init_extent_tree(const char *path)
 	if (ret)
 		error("The commit failed???? %d\n", ret);
 out:
+	free_data_extents_tree(&data_extents);
+
 	if (fs_info->excluded_extents) {
 		extent_io_tree_cleanup(fs_info->excluded_extents);
 		free(fs_info->excluded_extents);

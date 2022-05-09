@@ -26,6 +26,8 @@ typedef int (*rb_compare_nodes)(struct rb_node *node1, struct rb_node *node2);
 typedef int (*rb_compare_keys)(struct rb_node *node, void *key);
 typedef void (*rb_free_node)(struct rb_node *node);
 
+struct rb_node *rb_insert_node(struct rb_root *root, struct rb_node *node,
+			       rb_compare_nodes comp);
 int rb_insert(struct rb_root *root, struct rb_node *node,
 	      rb_compare_nodes comp);
 /*
