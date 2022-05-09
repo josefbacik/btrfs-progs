@@ -1430,7 +1430,6 @@ static int iterate_inode_refs(u64 inum, struct btrfs_root *fs_root,
 		if (ret < 0)
 			break;
 		if (ret) {
-			printf("inode ref info failed???\n");
 			ret = found ? 0 : -ENOENT;
 			break;
 		}
