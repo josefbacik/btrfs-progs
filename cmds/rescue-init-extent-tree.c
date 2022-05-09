@@ -96,6 +96,8 @@ static void print_paths(struct btrfs_root *root, u64 inum)
 	}
 
 	paths_from_inode(inum, ipath);
+	if (!ipath->fspath->elem_cnt)
+		printf("Couldn't find any paths for this inode\n");
 	for (i = 0; i < ipath->fspath->elem_cnt; i++) {
 		char *val = (char *)(ipath->fspath->val[i]);
 		printf("%s\n", val);
