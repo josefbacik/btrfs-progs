@@ -34,7 +34,7 @@ static bool in_range(u64 val, u64 start, u64 len)
 {
 	if (val < start)
 		return false;
-	if (start + len < val)
+	if (start + len <= val)
 		return false;
 	return true;
 }
