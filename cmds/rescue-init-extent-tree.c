@@ -222,7 +222,7 @@ static int process_leaf_item(struct btrfs_root *root,
 {
 	struct btrfs_file_extent_item *fi;
 	struct btrfs_block_group *block_group;
-	struct data_extent *de;
+	struct data_extent *de = NULL;
 	struct btrfs_key key;
 	u64 bytenr, num_bytes, gen;
 	int ret;
@@ -293,6 +293,15 @@ static int process_leaf_item(struct btrfs_root *root,
 	return 0;
 delete_it:
 	ret = delete_item(root, &key);
+
+	/*
+	 * We need to delete this de as we've deleted it and we only want to
+	 * freak out if we find more overlaps.
+	 */
+	if (de) {
+		rb_erase(&de->n, &data_extents);
+		free(de);
+	}
 	if (ret)
 		return ret;
 	return 1;
