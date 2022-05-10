@@ -30,11 +30,11 @@ struct data_extent {
 	struct rb_node n;
 };
 
-static bool in_range(u64 val, u64 start, u64 len)
+static bool in_range(u64 ins_start, u64 ins_len, u64 start, u64 len)
 {
-	if (val < start)
+	if (ins_start + ins_len <= start)
 		return false;
-	if (start + len <= val)
+	if (start + len <= ins_start)
 		return false;
 	return true;
 }
@@ -51,7 +51,7 @@ static int data_extent_compare(struct rb_node *node1, struct rb_node *node2)
 	struct data_extent *exist = rb_entry(node1, struct data_extent, n);
 	struct data_extent *ins = rb_entry(node2, struct data_extent, n);
 
-	if (in_range(ins->bytenr, exist->bytenr, exist->len))
+	if (in_range(ins->bytenr, ins->len, exist->bytenr, exist->len))
 		return 0;
 	if (ins->bytenr < exist->bytenr)
 		return -1;
@@ -881,7 +881,7 @@ static int insert_empty_extent(struct btrfs_trans_handle *trans,
 	else
 		num_bytes = key->offset;
 
-	if (in_range(PROBLEM, key->objectid, num_bytes))
+	if (in_range(PROBLEM, num_bytes, key->objectid, num_bytes))
 		printf("doing an insert that overlaps our bytenr %llu %llu\n", key->objectid, key->offset);
 
 	set_extent_dirty(&inserted, key->objectid, key->objectid + num_bytes - 1);
@@ -964,7 +964,7 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			if (!test_range_bit(&inserted, key.objectid,
 					    key.objectid + key.offset - 1,
 					    EXTENT_DIRTY, 0)) {
-				if (in_range(PROBLEM, key.objectid, key.offset)) {
+				if (in_range(PROBLEM, 0, key.objectid, key.offset)) {
 					printf("adding a bytenr that overlaps our thing, dumping paths for [%llu, %u, %llu]\n",
 					       orig.objectid, orig.type, orig.offset);
 					print_paths(root, orig.objectid);
