@@ -15,6 +15,7 @@
 #include "kernel-shared/backref.h"
 
 #define PROBLEM 10467695652864ULL
+#define PROBLEM_BYTES 8675328ULL
 
 typedef int (root_cb_t)(struct btrfs_root *root);
 
@@ -881,7 +882,7 @@ static int insert_empty_extent(struct btrfs_trans_handle *trans,
 	else
 		num_bytes = key->offset;
 
-	if (in_range(PROBLEM, num_bytes, key->objectid, num_bytes))
+	if (in_range(PROBLEM, PROBLEM_BYTES, key->objectid, num_bytes))
 		printf("doing an insert that overlaps our bytenr %llu %llu\n", key->objectid, key->offset);
 
 	set_extent_dirty(&inserted, key->objectid, key->objectid + num_bytes - 1);
@@ -964,7 +965,7 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			if (!test_range_bit(&inserted, key.objectid,
 					    key.objectid + key.offset - 1,
 					    EXTENT_DIRTY, 0)) {
-				if (in_range(PROBLEM, 0, key.objectid, key.offset)) {
+				if (in_range(PROBLEM, PROBLEM_BYTES, key.objectid, key.offset)) {
 					printf("adding a bytenr that overlaps our thing, dumping paths for [%llu, %u, %llu]\n",
 					       orig.objectid, orig.type, orig.offset);
 					print_paths(root, orig.objectid);
