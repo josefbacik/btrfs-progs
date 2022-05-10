@@ -273,7 +273,8 @@ static int process_leaf_item(struct btrfs_root *root,
 				sleep(1);
 			}
 		}
-		if (de->gen >= gen) {
+
+		if (gen >= de->gen && de->root_id != BTRFS_ROOT_TREE_OBJECTID) {
 			printf("The newly found extent is older, deleting it\n");
 			goto delete_it;
 		}
@@ -850,6 +851,12 @@ static int reinit_extent_tree(struct btrfs_fs_info *fs_info)
 	ret = reinit_data_reloc_root(fs_info);
 	if (ret) {
 		error("failed to reinit the data reloc root");
+	}
+
+	ret = clear_bad_extents(fs_info->tree_root);
+	if (ret) {
+		error("failed to clear bad extents in tree root\n");
+		return ret;
 	}
 
 	ret = foreach_root(fs_info, clear_bad_extents);
