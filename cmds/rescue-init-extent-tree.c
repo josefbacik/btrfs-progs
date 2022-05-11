@@ -937,16 +937,8 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 	int ret, pct;
 
 	if (btrfs_header_flag(eb, BTRFS_HEADER_FLAG_RELOC) ||
-	    btrfs_header_owner(eb) != ref_root) {
-		ret = btrfs_set_block_flags(trans, eb->start,
-					    btrfs_header_level(eb),
-					    BTRFS_BLOCK_FLAG_FULL_BACKREF);
-		if (ret) {
-			error("Couldn't set FULL_BACKREF %d\n", ret);
-			return ret;
-		}
+	    btrfs_header_owner(eb) != ref_root)
 		parent = eb->start;
-	}
 
 	for (i = 0; i < btrfs_header_nritems(eb); i++) {
 		if (level == 0) {
@@ -1013,8 +1005,6 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			struct extent_buffer *tmp;
 
 			flags = BTRFS_EXTENT_FLAG_TREE_BLOCK;
-			if (parent)
-				flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
 
 			key.objectid = btrfs_node_blockptr(eb, i);
 			gen = btrfs_node_ptr_generation(eb, i);
@@ -1044,6 +1034,16 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 				key.offset = nodesize;
 				key.type = BTRFS_EXTENT_ITEM_KEY;
 			}
+			tmp = read_tree_block(trans->fs_info, key.objectid, gen);
+			if (IS_ERR(tmp)) {
+				error("couldn't read block, please run btrfs rescue tree-recover");
+				return PTR_ERR(tmp);
+			}
+
+			if (btrfs_header_owner(tmp) != root->root_key.objectid ||
+			    btrfs_header_flag(tmp, BTRFS_HEADER_FLAG_RELOC))
+				flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
+
 			ret = insert_empty_extent(trans, &key, gen, flags);
 			if (ret) {
 				/*
@@ -1070,11 +1070,6 @@ static int process_eb(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 				}
 			}
 
-			tmp = read_tree_block(trans->fs_info, key.objectid, gen);
-			if (IS_ERR(tmp)) {
-				error("couldn't read block, please run btrfs rescue tree-recover");
-				return PTR_ERR(tmp);
-			}
 			ret = process_eb(trans, root, tmp, current);
 			free_extent_buffer_nocache(tmp);
 			if (ret)
