@@ -1486,6 +1486,7 @@ static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans,
 	key.offset = 0;
 	ret = btrfs_search_slot(NULL, extent_root, &key, &path, 0, 0);
 	if (ret < 0) {
+		error("couldn't find first bytenr in extent root\n");
 		btrfs_release_path(&path);
 		return ret;
 	}
@@ -1499,8 +1500,10 @@ static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans,
 	while (1) {
 		if (path.slots[0] >= btrfs_header_nritems(path.nodes[0])) {
 			ret = btrfs_next_leaf(extent_root, &path);
-			if (ret < 0)
+			if (ret < 0) {
+				error("next leaf failed");
 				break;
+			}
 			if (ret) {
 				ret = 0;
 				break;
@@ -1538,12 +1541,16 @@ static int fill_csum_tree_from_extent(struct btrfs_trans_handle *trans,
 		csum_root = btrfs_csum_root(gfs_info, key.objectid);
 		ret = populate_csum(trans, csum_root, buf, key.objectid,
 				    key.offset);
-		if (ret < 0)
+		if (ret < 0) {
+			error("populate csum failed");
 			break;
+		}
 		ret = iterate_extent_inodes(trans->fs_info, key.objectid, 0, 0,
 					    remove_csum_for_file_extent, trans);
-		if (ret)
+		if (ret) {
+			error("iterate extent inodes failed");
 			break;
+		}
 		path.slots[0]++;
 	}
 
