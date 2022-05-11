@@ -10596,7 +10596,7 @@ static int cmd_check(const struct cmd_struct *cmd, int argc, char **argv)
 				goto close_out;
 			}
 
-			ret = fill_csum_tree(trans, init_extent_tree);
+			ret = fill_csum_tree(trans, true);
 			err |= !!ret;
 			if (ret) {
 				error("checksum tree refilling failed: %d", ret);
