@@ -35,6 +35,43 @@ static const char * const rescue_cmd_group_usage[] = {
 	NULL
 };
 
+static const char * const cmd_rescue_init_csum_tree_usage[] = {
+	"btrfs rescue init-csum-tree <device>",
+	"Clear the csum root and rebuild it from accessible blocks",
+	NULL
+};
+
+static int cmd_rescue_init_csum_tree(const struct cmd_struct *cmd, int argc,
+				     char *argv[])
+{
+	char *devname;
+	int ret;
+
+	clean_args_no_options(cmd, argc, argv);
+	if (check_argc_exact(argc, 2))
+		return -EINVAL;
+
+	devname = argv[optind];
+	ret = check_mounted(devname);
+	if (ret < 0) {
+		errno = -ret;
+		error("could not check mount status: %m");
+		return ret;
+	} else if (ret) {
+		error("%s is currently mounted", devname);
+		return -EBUSY;
+	}
+
+	ret = btrfs_init_csum_tree(devname);
+	if (!ret) {
+		fprintf(stdout, "Init csum tree finished, you can run check now\n");
+	} else {
+		fprintf(stdout, "Init csum tree failed\n");
+	}
+	return ret;
+}
+static DEFINE_SIMPLE_COMMAND(rescue_init_csum_tree, "init-csum-tree");
+
 static const char * const cmd_rescue_init_extent_tree_usage[] = {
 	"btrfs rescue init-extent-tree <device>",
 	"Clear the extent root and rebuild it from accessible blocks",
@@ -485,6 +522,7 @@ static const struct cmd_group rescue_cmd_group = {
 		&cmd_struct_rescue_clear_uuid_tree,
 		&cmd_struct_rescue_tree_recover,
 		&cmd_struct_rescue_init_extent_tree,
+		&cmd_struct_rescue_init_csum_tree,
 		NULL
 	}
 };
