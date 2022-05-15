@@ -221,7 +221,7 @@ static int record_csums_eb(struct extent_buffer *eb, u64 *processed)
 				return PTR_ERR(tmp);
 			}
 
-			ret = record_csums_eb(eb, processed);
+			ret = record_csums_eb(tmp, processed);
 			free_extent_buffer_nocache(tmp);
 			if (ret)
 				return ret;
