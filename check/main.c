@@ -8536,16 +8536,16 @@ int check_chunks(struct cache_tree *chunk_cache,
 				.offset = dext_rec->offset,
 			};
 
-			trans = btrfs_start_transaction(gfs_info->chunk_root, 0);
+			trans = btrfs_start_transaction(gfs_info->dev_root, 0);
 			if (IS_ERR(trans)) {
 				error("couldn't start transaction");
 				return -1;
 			}
 
-			ret = btrfs_delete_item(trans, gfs_info->chunk_root,
+			ret = btrfs_delete_item(trans, gfs_info->dev_root,
 						&key);
 			if (ret) {
-				error("couldn't delete chunk record");
+				error("couldn't delete dev extent");
 				return ret;
 			}
 
