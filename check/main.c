@@ -8449,6 +8449,29 @@ static int check_chunk_refs(struct chunk_record *chunk_rec,
 					chunk_rec->offset,
 					chunk_rec->stripes[i].devid,
 					chunk_rec->stripes[i].offset);
+			if (repair) {
+				struct btrfs_trans_handle *trans;
+				struct btrfs_key key = {
+					.objectid = chunk_rec->objectid,
+					.type = chunk_rec->type,
+					.offset = chunk_rec->offset,
+				};
+
+				trans = btrfs_start_transaction(gfs_info->chunk_root, 0);
+				if (IS_ERR(trans)) {
+					error("couldn't start transaction");
+					return -1;
+				}
+
+				ret = btrfs_delete_item(trans, gfs_info->chunk_root,
+							&key);
+				if (ret) {
+					error("couldn't delete chunk record");
+					return ret;
+				}
+
+				btrfs_commit_transaction(trans, gfs_info->chunk_root);
+			}
 			ret = -1;
 		}
 	}
@@ -8505,6 +8528,29 @@ int check_chunks(struct cache_tree *chunk_cache,
 				dext_rec->objectid,
 				dext_rec->offset,
 				dext_rec->length);
+		if (repair) {
+			struct btrfs_trans_handle *trans;
+			struct btrfs_key key = {
+				.objectid = dext_rec->objectid,
+				.type = dext_rec->type,
+				.offset = dext_rec->offset,
+			};
+
+			trans = btrfs_start_transaction(gfs_info->chunk_root, 0);
+			if (IS_ERR(trans)) {
+				error("couldn't start transaction");
+				return -1;
+			}
+
+			ret = btrfs_delete_item(trans, gfs_info->chunk_root,
+						&key);
+			if (ret) {
+				error("couldn't delete chunk record");
+				return ret;
+			}
+
+			btrfs_commit_transaction(trans, gfs_info->chunk_root);
+		}
 		if (!ret)
 			ret = 1;
 	}
