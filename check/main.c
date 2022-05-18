@@ -8516,6 +8516,30 @@ int check_chunks(struct cache_tree *chunk_cache,
 				bg_rec->objectid,
 				bg_rec->offset,
 				bg_rec->flags);
+		if (repair) {
+			struct btrfs_trans_handle *trans;
+			struct btrfs_root *root;
+			struct btrfs_key key = {
+				.objectid = bg_rec->objectid,
+				.type = bg_rec->type,
+				.offset = bg_rec->offset,
+			};
+
+			root = btrfs_extent_root(gfs_info, bg_rec->objectid);
+			trans = btrfs_start_transaction(root, 0);
+			if (IS_ERR(trans)) {
+				error("couldn't start transaction");
+				return -1;
+			}
+
+			ret = btrfs_delete_item(trans, root, &key);
+			if (ret) {
+				error("couldn't delete block group");
+				return ret;
+			}
+
+			btrfs_commit_transaction(trans, root);
+		}
 		if (!ret)
 			ret = 1;
 	}
