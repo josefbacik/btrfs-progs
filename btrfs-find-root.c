@@ -452,7 +452,6 @@ static void get_root_gen_and_level(u64 objectid, struct btrfs_fs_info *fs_info,
 	}
 }
 
-#if 0
 static void print_one_result(struct cache_extent *tree_block,
 			     struct btrfs_find_root_gen_cache *gen_cache,
 			     u64 generation,
@@ -504,7 +503,6 @@ static void print_find_root_result(struct cache_tree *result,
 			print_one_result(tree_block, gen_cache, generation, filter);
 	}
 }
-#endif
 
 static const char * btrfs_find_root_usage[] = {
 	"btrfs-find-usage [options] <device>",
@@ -526,7 +524,6 @@ int main(int argc, char **argv)
 	struct btrfs_find_root_filter filter = {0};
 	struct cache_tree result;
 	struct cache_extent *found;
-	struct btrfs_root *csum_root;
 	struct open_ctree_flags ocf = { 0 };
 	int ret = 0;
 
@@ -582,10 +579,6 @@ int main(int argc, char **argv)
 	}
 	cache_tree_init(&result);
 
-	csum_root = btrfs_csum_root(fs_info, 0);
-	count_bad_items(csum_root->node);
-	goto out;
-
 	get_root_gen_and_level(filter.objectid, fs_info,
 			       &filter.match_gen, &filter.match_level);
 	ret = btrfs_find_root_search(fs_info, &filter, &result, &found);
@@ -608,7 +601,7 @@ int main(int argc, char **argv)
 			printf("\n");
 		ret = 0;
 	}
-//	print_find_root_result(&result, &filter);
+	print_find_root_result(&result, &filter);
 out:
 	btrfs_find_root_free(&result);
 	close_ctree_fs_info(fs_info);
