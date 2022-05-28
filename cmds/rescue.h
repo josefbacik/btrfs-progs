@@ -25,5 +25,6 @@ int btrfs_recover_chunk_tree(const char *path, int yes);
 int btrfs_recover_trees(const char *path);
 int btrfs_init_extent_tree(const char *path);
 int btrfs_init_csum_tree(const char *path);
+int btrfs_find_recover_chunks(const char *path);
 
 #endif

@@ -203,6 +203,7 @@ cmds_objects = cmds/subvolume.o cmds/subvolume-list.o \
 	       cmds/restore.o cmds/rescue.o cmds/rescue-chunk-recover.o \
 	       cmds/rescue-super-recover.o cmds/rescue-tree-recover.o \
 	       cmds/rescue-init-extent-tree.o cmds/rescue-init-csum-tree.o \
+	       cmds/rescue-recover-chunks.o \
 	       cmds/property.o cmds/filesystem-usage.o cmds/inspect-dump-tree.o \
 	       cmds/inspect-dump-super.o cmds/inspect-tree-stats.o cmds/filesystem-du.o \
 	       mkfs/common.o check/mode-common.o check/mode-lowmem.o
