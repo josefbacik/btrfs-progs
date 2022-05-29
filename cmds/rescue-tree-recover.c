@@ -606,10 +606,11 @@ static void get_root_info(struct btrfs_fs_info *fs_info,
 static int scan_for_best_root(struct btrfs_fs_info *fs_info,
 			      struct root_info *info)
 {
-	struct block_info search = {}, *block_info;
+	struct block_info *block_info;
+	struct rb_node *n;
 	struct root_info cur, best;
 	int ret;
-	bool found = false;
+	int max_level = -1;
 
 	memcpy(&cur, info, sizeof(cur));
 	memcpy(&best, info, sizeof(best));
@@ -620,15 +621,24 @@ static int scan_for_best_root(struct btrfs_fs_info *fs_info,
 		return ret;
 	}
 
-	search.generation = info->generation;
-	search.level = info->level;
-
 	/*
 	 * Every time we find a new block we remove it from the tree, so we can
 	 * just iterate over everything that matches our level.
 	 */
-	while ((block_info = find_best_block(fs_info, &search, NULL)) != NULL) {
-		found = true;
+	for (n = rb_first(&block_cache); n; n = rb_next(n)) {
+		block_info = rb_entry(n, struct block_info, n);
+
+		if (block_info->generation > fs_info->generation)
+			continue;
+
+		/* Block cache is highest level, highest generation first, so
+		 * once we go below the given level lets just stop.
+		 */
+		if (max_level == -1)
+			max_level = block_info->level;
+
+		if (best.found_blocks && block_info->level < max_level)
+			break;
 
 		reset_root_info(&cur);
 		cur.bytenr = block_info->bytenr;
@@ -637,11 +647,10 @@ static int scan_for_best_root(struct btrfs_fs_info *fs_info,
 		get_root_info(fs_info, &cur);
 		if (compare_root_info(&best, &cur) < 0)
 			memcpy(&best, &cur, sizeof(cur));
-		free(block_info);
 	}
 
 	free_block_cache_tree(&block_cache);
-	if (!found) {
+	if (!best.found_blocks) {
 		error("Couldn't find a valid root block for %llu, we're going to clear it and hope for the best",
 		      info->objectid);
 		return -EINVAL;
