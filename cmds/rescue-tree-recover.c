@@ -615,6 +615,8 @@ static int scan_for_best_root(struct btrfs_fs_info *fs_info,
 	memcpy(&cur, info, sizeof(cur));
 	memcpy(&best, info, sizeof(best));
 
+	printf("scanning, best has %d found %d bad\n", best.found_blocks, best.bad_blocks);
+
 	ret = populate_block_info_cache(fs_info, info->objectid, true);
 	if (ret) {
 		error("Couldn't populate block info cache");
@@ -645,6 +647,8 @@ static int scan_for_best_root(struct btrfs_fs_info *fs_info,
 		cur.generation = block_info->generation;
 		cur.level = block_info->level;
 		get_root_info(fs_info, &cur);
+		printf("trying bytenr %llu got %d blocks %d bad\n", block_info->bytenr,
+		       cur.found_blocks, cur.bad_blocks);
 		if (compare_root_info(&best, &cur) < 0)
 			memcpy(&best, &cur, sizeof(cur));
 	}
