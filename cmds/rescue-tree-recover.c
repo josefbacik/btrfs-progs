@@ -345,6 +345,9 @@ static int populate_block_info_cache(struct btrfs_fs_info *fs_info,
 		else
 			ret = btrfs_next_bg_system(fs_info, &chunk_offset,
 						   &chunk_size);
+		if (objectid == BTRFS_CHUNK_TREE_OBJECTID)
+			printf("ret is %d offset %llu len %llu\n",
+			       ret, chunk_offset, chunk_size);
 		if (ret) {
 			if (ret == -ENOENT)
 				ret = 0;
@@ -630,6 +633,8 @@ static int scan_for_best_root(struct btrfs_fs_info *fs_info,
 	for (n = rb_first(&block_cache); n; n = rb_next(n)) {
 		block_info = rb_entry(n, struct block_info, n);
 
+		printf("checking block %llu generation %llu fs info generation %llu\n",
+		       block_info->bytenr, block_info->generation, fs_info->generation);
 		if (block_info->generation > fs_info->generation)
 			continue;
 
