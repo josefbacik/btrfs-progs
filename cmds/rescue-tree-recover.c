@@ -717,6 +717,20 @@ static int find_best_root(struct btrfs_fs_info *fs_info,
 			memcpy(&best, &cur, sizeof(cur));
 	}
 	memcpy(info, &best, sizeof(best));
+
+	/*
+	 * None of our backups had a root we could work with, scan for a root.
+	 */
+	if (best.found_blocks == 0) {
+		int ret;
+
+		printf("none of our backups was sufficient, scanning for a root\n");
+		memcpy(&cur, &best, sizeof(best));
+		ret = scan_for_best_root(fs_info, &cur);
+		memcpy(info, &cur, sizeof(cur));
+		return ret;
+	}
+
 	return 0;
 }
 
