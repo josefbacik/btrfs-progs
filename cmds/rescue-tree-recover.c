@@ -1147,7 +1147,7 @@ int btrfs_recover_trees(const char *path)
 
 	ocf.filename = path;
 	ocf.flags = OPEN_CTREE_CHUNK_ROOT_ONLY | OPEN_CTREE_WRITES |
-		OPEN_CTREE_ALLOW_TRANSID_MISMATCH;
+		OPEN_CTREE_ALLOW_TRANSID_MISMATCH | OPEN_CTREE_IGNORE_CHUNK_TREE_ERROR;
 
 	fs_info = open_ctree_fs_info(&ocf);
 	if (!fs_info) {
