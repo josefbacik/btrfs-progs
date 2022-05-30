@@ -1169,6 +1169,8 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 	btrfs_setup_root(root, fs_info, BTRFS_ROOT_TREE_OBJECTID);
 	generation = btrfs_super_generation(sb);
 	level = btrfs_super_root_level(sb);
+	fs_info->generation = generation;
+	fs_info->last_trans_committed = generation;
 
 	if (!root_tree_bytenr && !(flags & OPEN_CTREE_BACKUP_ROOT)) {
 		root_tree_bytenr = btrfs_super_root(sb);
@@ -1229,8 +1231,6 @@ int btrfs_setup_all_roots(struct btrfs_fs_info *fs_info, u64 root_tree_bytenr,
 			return -EIO;
 	}
 
-	fs_info->generation = generation;
-	fs_info->last_trans_committed = generation;
 	if (maybe_load_block_groups(fs_info, flags)) {
 		ret = btrfs_read_block_groups(fs_info);
 		/*
