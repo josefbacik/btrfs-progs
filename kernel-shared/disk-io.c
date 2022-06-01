@@ -2024,6 +2024,14 @@ static void backup_super_roots(struct btrfs_fs_info *info)
 	int next_backup;
 	int last_backup;
 
+	if (!info->chunk_root->node ||
+	    !info->tree_root->node ||
+	    !csum_root->node ||
+	    !extent_root->node ||
+	    !info->dev_root->node ||
+	    !info->fs_root->node)
+		return;
+
 	last_backup = btrfs_find_best_backup_root(info->super_copy);
 	next_backup = (last_backup + 1) % BTRFS_NUM_BACKUP_ROOTS;
 
