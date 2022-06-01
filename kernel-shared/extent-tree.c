@@ -2508,7 +2508,7 @@ static int alloc_tree_block(struct btrfs_trans_handle *trans,
 		return -ENOMEM;
 
 	sinfo = __find_space_info(fs_info, flags);
-	if (!sinfo) {
+	if (!sinfo && !trans->reinit_extent_tree) {
 		error("Corrupted fs, no valid METADATA block group found");
 		return -EUCLEAN;
 	}
@@ -2544,7 +2544,8 @@ static int alloc_tree_block(struct btrfs_trans_handle *trans,
 		BUG_ON(ret);
 	}
 
-	sinfo->bytes_reserved += extent_size;
+	if (sinfo)
+		sinfo->bytes_reserved += extent_size;
 	ret = btrfs_add_delayed_tree_ref(root->fs_info, trans, ins->objectid,
 					 extent_size, 0, root_objectid,
 					 level, BTRFS_ADD_DELAYED_EXTENT,
