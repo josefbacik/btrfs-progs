@@ -1194,6 +1194,8 @@ int btrfs_recover_trees(const char *path)
 	ret = repair_super_root(&fs_info, &ocf, BTRFS_CHUNK_TREE_OBJECTID);
 	if (ret)
 		goto out;
+	if (ret)
+		goto out;
 	ret = repair_super_root(&fs_info, &ocf, BTRFS_ROOT_TREE_OBJECTID);
 	if (ret)
 		goto out;

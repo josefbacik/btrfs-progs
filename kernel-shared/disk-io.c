@@ -2150,12 +2150,15 @@ int write_ctree_super(struct btrfs_trans_handle *trans)
 	if (fs_info->readonly)
 		return 0;
 
-	btrfs_set_super_generation(fs_info->super_copy,
-				   trans->transid);
-	btrfs_set_super_root(fs_info->super_copy,
-			     tree_root->node->start);
-	btrfs_set_super_root_level(fs_info->super_copy,
-				   btrfs_header_level(tree_root->node));
+	if (tree_root && tree_root->node) {
+		btrfs_set_super_generation(fs_info->super_copy,
+					   trans->transid);
+		btrfs_set_super_root(fs_info->super_copy,
+				     tree_root->node->start);
+		btrfs_set_super_root_level(fs_info->super_copy,
+					   btrfs_header_level(tree_root->node));
+	}
+
 	btrfs_set_super_chunk_root(fs_info->super_copy,
 				   chunk_root->node->start);
 	btrfs_set_super_chunk_root_level(fs_info->super_copy,
