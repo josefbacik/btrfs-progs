@@ -1390,7 +1390,7 @@ int btrfs_setup_chunk_tree_and_device_map(struct btrfs_fs_info *fs_info,
 			fs_info->chunk_root = NULL;
 			return 0;
 		} else {
-			error("cannot read chunk root");
+			error("cannot read chunk root %llu", chunk_root_bytenr);
 			return -EIO;
 		}
 	}

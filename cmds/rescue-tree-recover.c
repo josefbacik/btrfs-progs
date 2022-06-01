@@ -940,6 +940,7 @@ static int repair_super_root(struct btrfs_fs_info **fs_info_ptr,
 						   info.level);
 			break;
 		case BTRFS_CHUNK_TREE_OBJECTID:
+			printf("setting chunk root to %llu\n", info.bytenr);
 			btrfs_set_super_chunk_root(fs_info->super_copy,
 						   info.bytenr);
 			btrfs_set_super_chunk_root_level(fs_info->super_copy,
