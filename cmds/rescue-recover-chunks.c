@@ -347,6 +347,34 @@ static int build_chunk_cache(struct extent_buffer *eb)
 	return 0;
 }
 
+static int setup_free_space(struct btrfs_fs_info *fs_info)
+{
+	struct btrfs_block_group *bg;
+	u64 chunk_offset = 0, chunk_size = 0;
+	int ret;
+
+	while (1) {
+		ret = btrfs_next_bg_system(fs_info, &chunk_offset, &chunk_size);
+		if (ret) {
+			if (ret == -ENOENT)
+			    ret = 0;
+			break;
+		}
+
+		bg = btrfs_add_block_group(fs_info, 0, BTRFS_BLOCK_GROUP_SYSTEM,
+					   chunk_offset, chunk_size);
+		if (IS_ERR(bg)) {
+			ret = PTR_ERR(bg);
+			error("couldn't add block group %d", ret);
+			break;
+		}
+
+		add_new_free_space(bg, fs_info, chunk_offset, chunk_size);
+	}
+
+	return ret;
+}
+
 static int restore_missing_chunks(struct btrfs_fs_info *fs_info)
 {
 	struct chunk_info *cur;
@@ -409,6 +437,10 @@ int btrfs_find_recover_chunks(const char *path)
 		error("Couldn't pin down excluded extents, if there were errors run btrfs rescue tree-recover");
 		goto out;
 	}
+
+	ret = setup_free_space(fs_info);
+	if (ret)
+		goto out;
 
 	ret = build_chunk_cache(fs_info->chunk_root->node);
 	if (ret)
