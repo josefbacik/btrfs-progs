@@ -2498,7 +2498,7 @@ static int alloc_tree_block(struct btrfs_trans_handle *trans,
 	struct btrfs_delayed_extent_op *extent_op;
 	struct btrfs_space_info *sinfo;
 	struct btrfs_fs_info *fs_info = root->fs_info;
-	u64 flags = (root == fs_info->chunk_root) ? BTRFS_BLOCK_GROUP_SYSTEM :
+	u64 bgflags = (root == fs_info->chunk_root) ? BTRFS_BLOCK_GROUP_SYSTEM :
 		BTRFS_BLOCK_GROUP_METADATA;
 	bool skinny_metadata = btrfs_fs_incompat(root->fs_info,
 						 SKINNY_METADATA);
@@ -2507,7 +2507,7 @@ static int alloc_tree_block(struct btrfs_trans_handle *trans,
 	if (!extent_op)
 		return -ENOMEM;
 
-	sinfo = __find_space_info(fs_info, flags);
+	sinfo = __find_space_info(fs_info, bgflags);
 	if (!sinfo && !trans->reinit_extent_tree) {
 		error("Corrupted fs, no valid METADATA block group found");
 		return -EUCLEAN;
