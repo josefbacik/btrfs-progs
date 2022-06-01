@@ -2024,6 +2024,10 @@ static void backup_super_roots(struct btrfs_fs_info *info)
 	int next_backup;
 	int last_backup;
 
+	if (!info->chunk_root || !info->tree_root || !csum_root ||
+	    !extent_root || !info->dev_root || !info->fs_root)
+		return;
+
 	if (!info->chunk_root->node ||
 	    !info->tree_root->node ||
 	    !csum_root->node ||
