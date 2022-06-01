@@ -2202,7 +2202,7 @@ static u64 stripe_align(struct btrfs_root *root, u64 val)
  * Any available blocks before search_start are skipped.
  */
 static int noinline find_free_extent(struct btrfs_trans_handle *trans,
-				     struct btrfs_root *orig_root,
+				     struct btrfs_root *root,
 				     u64 num_bytes, u64 empty_size,
 				     u64 search_start, u64 search_end,
 				     u64 hint_byte, struct btrfs_key *ins,
@@ -2211,7 +2211,6 @@ static int noinline find_free_extent(struct btrfs_trans_handle *trans,
 {
 	int ret;
 	u64 orig_search_start = search_start;
-	struct btrfs_root *root = orig_root->fs_info->tree_root;
 	struct btrfs_fs_info *info = root->fs_info;
 	u64 total_needed = num_bytes;
 	struct btrfs_block_group *block_group;

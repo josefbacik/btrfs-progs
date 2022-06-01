@@ -361,6 +361,7 @@ static int setup_free_space(struct btrfs_fs_info *fs_info)
 			break;
 		}
 
+		printf("adding bg for %llu %llu\n", chunk_offset, chunk_size);
 		bg = btrfs_add_block_group(fs_info, 0, BTRFS_BLOCK_GROUP_SYSTEM,
 					   chunk_offset, chunk_size);
 		if (IS_ERR(bg)) {
