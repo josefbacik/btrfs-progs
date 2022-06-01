@@ -665,6 +665,7 @@ static int scan_for_best_root(struct btrfs_fs_info *fs_info,
 		return -EINVAL;
 	}
 	memcpy(info, &best, sizeof(best));
+	info->update = 1;
 	return 0;
 }
 
@@ -689,7 +690,6 @@ static int find_best_root(struct btrfs_fs_info *fs_info,
 	}
 
 	/* From here on out we need to update the root. */
-	cur.update = 1;
 	memcpy(&best, &cur, sizeof(cur));
 
 	/*
@@ -735,6 +735,7 @@ static int find_best_root(struct btrfs_fs_info *fs_info,
 			memcpy(&best, &cur, sizeof(cur));
 	}
 	memcpy(info, &best, sizeof(best));
+	info->update = 1;
 
 	/*
 	 * None of our backups had a root we could work with, scan for a root.
