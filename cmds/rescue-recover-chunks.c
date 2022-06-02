@@ -370,7 +370,8 @@ static int setup_free_space(struct btrfs_fs_info *fs_info)
 			break;
 		}
 
-		add_new_free_space(bg, fs_info, chunk_offset, chunk_size);
+		set_extent_dirty(&fs_info->free_space_cache,
+				 chunk_offset, chunk_offset + chunk_size - 1);
 		bg->cached = 1;
 	}
 
