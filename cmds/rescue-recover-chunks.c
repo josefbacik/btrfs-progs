@@ -389,7 +389,7 @@ static int restore_missing_chunks(struct btrfs_fs_info *fs_info)
 		error("Couldn't start transaction %ld", PTR_ERR(trans));
 		return PTR_ERR(trans);
 	}
-	trans->reinit_extent_tree = 1;
+	trans->chunk_recover = true;
 
 	list_for_each_entry(cur, &missing, list) {
 		printf("Inserting chunk %llu\n", cur->key.offset);
