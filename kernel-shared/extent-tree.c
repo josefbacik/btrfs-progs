@@ -2245,6 +2245,12 @@ check_failed:
 			block_group = btrfs_lookup_first_block_group(info,
 						       orig_search_start);
 	}
+	if (!block_group) {
+		printf("couldn't find block group from %llu or %llu\n",
+		       search_start, orig_search_start);
+		BUG_ON(!block_group);
+	}
+	BUG_ON(!root);
 	ret = find_search_start(root, &block_group, &search_start,
 				total_needed, profile);
 	if (ret)

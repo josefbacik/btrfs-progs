@@ -439,10 +439,6 @@ int btrfs_find_recover_chunks(const char *path)
 		goto out;
 	}
 
-	ret = setup_free_space(fs_info);
-	if (ret)
-		goto out;
-
 	ret = build_chunk_cache(fs_info->chunk_root->node);
 	if (ret)
 		goto out;
@@ -454,6 +450,11 @@ int btrfs_find_recover_chunks(const char *path)
 		goto out;
 	}
 	cull_missing_chunks();
+
+	ret = setup_free_space(fs_info);
+	if (ret)
+		goto out;
+
 	ret = restore_missing_chunks(fs_info);
 out:
 	if (fs_info->excluded_extents) {
