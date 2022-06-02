@@ -578,6 +578,9 @@ int btrfs_add_delayed_tree_ref(struct btrfs_fs_info *fs_info,
 	int ret;
 	u8 ref_type;
 
+	if (trans->chunk_recover)
+		return 0;
+
 	BUG_ON(extent_op && extent_op->is_data);
 	ref = kmalloc(sizeof(*ref), GFP_NOFS);
 	if (!ref)
