@@ -371,6 +371,7 @@ static int setup_free_space(struct btrfs_fs_info *fs_info)
 		}
 
 		add_new_free_space(bg, fs_info, chunk_offset, chunk_size);
+		bg->cached = 1;
 	}
 
 	return ret;
