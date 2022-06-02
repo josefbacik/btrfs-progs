@@ -392,7 +392,7 @@ static int restore_missing_chunks(struct btrfs_fs_info *fs_info)
 	trans->reinit_extent_tree = 1;
 
 	list_for_each_entry(cur, &missing, list) {
-		printf("Inserting chunk %llu", cur->key.offset);
+		printf("Inserting chunk %llu\n", cur->key.offset);
 		ret = btrfs_insert_item(trans, fs_info->chunk_root,
 					&cur->key, cur->chunk,
 					btrfs_chunk_item_size(cur->num_stripes));
