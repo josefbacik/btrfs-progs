@@ -435,7 +435,7 @@ int btrfs_find_recover_chunks(const char *path)
 	fs_info->excluded_extents = excluded_extents;
 
 	printf("Walking all our trees and pinning down the currently accessible blocks\n");
-	ret = btrfs_mark_used_tree_blocks(fs_info, excluded_extents);
+	ret = btrfs_mark_used_tree_blocks(fs_info, excluded_extents, true);
 	if (ret) {
 		error("Couldn't pin down excluded extents, if there were errors run btrfs rescue tree-recover");
 		goto out;

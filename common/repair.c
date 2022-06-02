@@ -179,12 +179,13 @@ static int traverse_tree_blocks(struct extent_io_tree *tree,
 }
 
 int btrfs_mark_used_tree_blocks(struct btrfs_fs_info *fs_info,
-				struct extent_io_tree *tree)
+				struct extent_io_tree *tree,
+				bool chunk_only)
 {
 	int ret;
 
 	ret = traverse_tree_blocks(tree, fs_info->chunk_root->node, 0);
-	if (!ret && fs_info->tree_root && fs_info->tree_root->node)
+	if (!ret && !chunk_only && fs_info->tree_root && fs_info->tree_root->node)
 		ret = traverse_tree_blocks(tree, fs_info->tree_root->node, 1);
 	return ret;
 }

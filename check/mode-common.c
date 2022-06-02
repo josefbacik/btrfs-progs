@@ -605,7 +605,7 @@ void reset_cached_block_groups()
 int pin_metadata_blocks(void)
 {
 	return btrfs_mark_used_tree_blocks(gfs_info,
-					   &gfs_info->pinned_extents);
+					   &gfs_info->pinned_extents, false);
 }
 
 int exclude_metadata_blocks(void)
@@ -618,7 +618,7 @@ int exclude_metadata_blocks(void)
 	extent_io_tree_init(excluded_extents);
 	gfs_info->excluded_extents = excluded_extents;
 
-	return btrfs_mark_used_tree_blocks(gfs_info, excluded_extents);
+	return btrfs_mark_used_tree_blocks(gfs_info, excluded_extents, false);
 }
 
 void cleanup_excluded_extents(void)

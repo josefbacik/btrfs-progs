@@ -34,7 +34,8 @@ int btrfs_add_corrupt_extent_record(struct btrfs_fs_info *info,
 				    u64 start, u64 len, int level);
 int btrfs_fix_block_accounting(struct btrfs_trans_handle *trans);
 int btrfs_mark_used_tree_blocks(struct btrfs_fs_info *fs_info,
-				struct extent_io_tree *tree);
+				struct extent_io_tree *tree,
+				bool chunk_only);
 int btrfs_mark_used_blocks(struct btrfs_fs_info *fs_info,
 			   struct extent_io_tree *tree);
 void btrfs_get_super_root_info(struct btrfs_fs_info *fs_info, u64 objectid,
