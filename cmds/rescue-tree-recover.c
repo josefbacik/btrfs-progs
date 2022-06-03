@@ -885,6 +885,8 @@ static int repair_root(struct btrfs_fs_info *fs_info, struct root_info *info)
 	}
 
 	ret = repair_tree(fs_info, info, eb);
+	if (btrfs_header_nritems(eb) == 0)
+		info->deleted = 1;
 	free_extent_buffer_nocache(eb);
 	return ret;
 }
@@ -1022,7 +1024,7 @@ static inline unsigned int leaf_data_end(const struct extent_buffer *leaf)
 	return btrfs_item_offset_nr(leaf, nr - 1);
 }
 
-static void delete_root(struct btrfs_path *path, int slot)
+static void delete_root(struct btrfs_path *path)
 {
 	struct extent_buffer *leaf;
 	struct btrfs_item *item;
@@ -1030,6 +1032,7 @@ static void delete_root(struct btrfs_path *path, int slot)
 	int dsize;
 	int i;
 	int nritems;
+	int slot = path->slots[0];
 
 	leaf = path->nodes[0];
 	last_off = btrfs_item_offset_nr(leaf, slot);
@@ -1089,7 +1092,7 @@ static int process_root_item(struct btrfs_fs_info *fs_info,
 	if (ret) {
 		printf("We thought root %llu could be found at %llu level %d but didn't find anything, deleting it.\n",
 		       key.objectid, info.bytenr, info.level);
-		delete_root(path, path->slots[0]);
+		delete_root(path);
 		return -EAGAIN;
 	}
 
@@ -1126,6 +1129,13 @@ static int process_root_item(struct btrfs_fs_info *fs_info,
 			ret = repair_root(fs_info, &info);
 			if (ret)
 				break;
+			if (info.deleted) {
+				printf("Root %llu was completely cleared, deleting it\n",
+				       key.objectid);
+				delete_root(path);
+				ret = -EAGAIN;
+				break;
+			}
 		}
 
 		btrfs_set_disk_root_bytenr(path->nodes[0], ri, info.bytenr);
