@@ -765,7 +765,8 @@ static void delete_slot(struct extent_buffer *eb, int slot)
 			      (nritems - slot - 1));
 	nritems--;
 	btrfs_set_header_nritems(eb, nritems);
-	write_tree_block(NULL, eb->fs_info, eb);
+	if (nritems)
+		write_tree_block(NULL, eb->fs_info, eb);
 }
 
 static void rewrite_slot(struct extent_buffer *eb, int slot,
@@ -843,17 +844,29 @@ again:
 		}
 
 		/*
-		 * At this point we don't need prev last, load the 0 node key
-		 * from tmp as it is currently in case we had to delete that
-		 * slot so we can update our pointer if we need to.
+		 * We may have deleted the last slot in this block, if so go
+		 * ahead and delete our pointer to it.
 		 */
-		btrfs_node_key_to_cpu(tmp, &prev_last, 0);
-		if (btrfs_comp_cpu_keys(&first_key, &prev_last)) {
-			struct btrfs_disk_key disk_key;
+		if (btrfs_header_nritems(tmp) == 0) {
+			root_info->last_repair = eb->start;
+			fprintf(stderr, "we're pointing at an empty node, delete slot %d in block %llu\n",
+				i, eb->start);
+			delete_slot(eb, i);
+		} else {
+			/*
+			 * At this point we don't need prev last, load the 0
+			 * node key from tmp as it is currently in case we had
+			 * to delete that slot so we can update our pointer if
+			 * we need to.
+			 */
+			btrfs_node_key_to_cpu(tmp, &prev_last, 0);
+			if (btrfs_comp_cpu_keys(&first_key, &prev_last)) {
+				struct btrfs_disk_key disk_key;
 
-			btrfs_cpu_key_to_disk(&disk_key, &prev_last);
-			btrfs_set_node_key(eb, &disk_key, i);
-			write_tree_block(NULL, fs_info, eb);
+				btrfs_cpu_key_to_disk(&disk_key, &prev_last);
+				btrfs_set_node_key(eb, &disk_key, i);
+				write_tree_block(NULL, fs_info, eb);
+			}
 		}
 		free_extent_buffer_nocache(tmp);
 	}
