@@ -664,6 +664,7 @@ static int scan_for_best_root(struct btrfs_fs_info *fs_info,
 		      info->objectid);
 		return -EINVAL;
 	}
+	printf("scan for best root %llu wants to use %llu as the root bytenr\n", best.objectid, best.bytenr);
 	memcpy(info, &best, sizeof(best));
 	info->update = 1;
 	return 0;
@@ -1138,6 +1139,8 @@ static int process_root_item(struct btrfs_fs_info *fs_info,
 			}
 		}
 
+		printf("setting root %llu to bytenr %llu\n", key.objectid,
+		       info.bytenr);
 		btrfs_set_disk_root_bytenr(path->nodes[0], ri, info.bytenr);
 		btrfs_set_disk_root_generation(path->nodes[0], ri,
 					       info.generation);
