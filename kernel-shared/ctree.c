@@ -110,12 +110,12 @@ static int noinline check_block(struct btrfs_fs_info *fs_info,
 
 void btrfs_release_path(struct btrfs_path *p)
 {
-	int i;
+	int i, ret;
 	for (i = 0; i < BTRFS_MAX_LEVEL; i++) {
 		if (!p->nodes[i])
 			continue;
-		check_block(p->nodes[i]->fs_info,
-			    p, i);
+		ret = check_block(p->nodes[i]->fs_info, p, i);
+		BUG_ON(ret);
 		free_extent_buffer(p->nodes[i]);
 	}
 	memset(p, 0, sizeof(*p));
