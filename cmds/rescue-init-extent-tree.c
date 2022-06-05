@@ -187,9 +187,11 @@ static int delete_item(struct btrfs_root *root, struct btrfs_key *key)
 	btrfs_init_path(&path);
 	ret = btrfs_search_slot(trans, root, key, &path, -1, 1);
 	if (ret) {
+		u64 start = root->node ? root->node->start : 0;
+		u64 commit_root = root->commit_root ? root->commit_root->start : 0;
 		if (ret > 0)
 			ret = -ENOENT;
-		error("error searching for key?? %d", ret);
+		error("error searching for key?? %d root %llu node %llu commit %llu", ret, root->root_key.objectid, start, commit_root);
 		return ret;
 	}
 
