@@ -601,7 +601,7 @@ static void generic_err(const struct extent_buffer *buf, int slot,
 
 	if (buf->fs_info) {
 		root = btrfs_read_fs_root(buf->fs_info, &key);
-		if (root) {
+		if (!IS_ERR(root)) {
 			start = root->node ? root->node->start : 0;
 			commit_start = root->commit_root ? root->commit_root->start : 0;
 		} else {
