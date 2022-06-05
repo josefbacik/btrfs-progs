@@ -591,11 +591,20 @@ static inline unsigned int leaf_data_end(const struct extent_buffer *leaf)
 static void generic_err(const struct extent_buffer *buf, int slot,
 			const char *fmt, ...)
 {
+	struct btrfs_root *root;
+	struct btrfs_key key = {
+		.objectid = btrfs_header_owner(buf),
+		.type = BTRFS_ROOT_ITEM_KEY,
+	};
 	va_list args;
 
-	fprintf(stderr, "corrupt %s: root=%lld block=%llu physical=%llu slot=%d, ",
+	root = btrfs_read_fs_root(buf->fs_info, &key);
+	fprintf(stderr, "corrupt %s: root=%lld root bytenr %llu commit bytenr %llu block=%llu physical=%llu slot=%d, ",
 		btrfs_header_level(buf) == 0 ? "leaf": "node",
-		btrfs_header_owner(buf), btrfs_header_bytenr(buf),
+		btrfs_header_owner(buf),
+		root->node ? root->node->start : 0,
+		root->commit_root ? root->commit_root->start : 0,
+		btrfs_header_bytenr(buf),
 		buf->dev_bytenr, slot);
 	va_start(args, fmt);
 	vfprintf(stderr, fmt, args);
