@@ -596,14 +596,24 @@ static void generic_err(const struct extent_buffer *buf, int slot,
 		.objectid = btrfs_header_owner(buf),
 		.type = BTRFS_ROOT_ITEM_KEY,
 	};
+	u64 start = 0, commit_start = 0;
 	va_list args;
 
-	root = btrfs_read_fs_root(buf->fs_info, &key);
+	if (buf->fs_info) {
+		root = btrfs_read_fs_root(buf->fs_info, &key);
+		if (root) {
+			start = root->node ? root->node->start : 0;
+			commit_start = root->commit_root ? root->commit_root->start : 0;
+		} else {
+			start = 1;
+		}
+	} else {
+		start = 2;
+	}
+
 	fprintf(stderr, "corrupt %s: root=%lld root bytenr %llu commit bytenr %llu block=%llu physical=%llu slot=%d, ",
 		btrfs_header_level(buf) == 0 ? "leaf": "node",
-		btrfs_header_owner(buf),
-		root->node ? root->node->start : 0,
-		root->commit_root ? root->commit_root->start : 0,
+		btrfs_header_owner(buf), start, commit_start,
 		btrfs_header_bytenr(buf),
 		buf->dev_bytenr, slot);
 	va_start(args, fmt);
