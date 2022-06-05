@@ -105,6 +105,8 @@ void btrfs_free_path(struct btrfs_path *p)
 	btrfs_release_path(p);
 	kfree(p);
 }
+static int noinline check_block(struct btrfs_fs_info *fs_info,
+				struct btrfs_path *path, int level);
 
 void btrfs_release_path(struct btrfs_path *p)
 {
@@ -112,6 +114,8 @@ void btrfs_release_path(struct btrfs_path *p)
 	for (i = 0; i < BTRFS_MAX_LEVEL; i++) {
 		if (!p->nodes[i])
 			continue;
+		check_block(p->nodes[i]->fs_info,
+			    p, i);
 		free_extent_buffer(p->nodes[i]);
 	}
 	memset(p, 0, sizeof(*p));
