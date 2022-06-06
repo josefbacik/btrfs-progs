@@ -1014,6 +1014,8 @@ static int balance_level(struct btrfs_trans_handle *trans,
 	if (left) {
 		orig_slot += btrfs_header_nritems(left);
 		wret = push_node_left(trans, root, left, mid, 1);
+		printf("push node left from left mid nritems %d right nritems %d\n",
+		       btrfs_header_nritems(mid), btrfs_header_nritems(left));
 		if (wret < 0)
 			ret = wret;
 	}
@@ -1023,6 +1025,8 @@ static int balance_level(struct btrfs_trans_handle *trans,
 	 */
 	if (right) {
 		wret = push_node_left(trans, root, mid, right, 1);
+		printf("push node left from right mid nritems %d right nritems %d\n",
+		       btrfs_header_nritems(mid), btrfs_header_nritems(right));
 		if (wret < 0 && wret != -ENOSPC)
 			ret = wret;
 		if (btrfs_header_nritems(right) == 0) {
@@ -1063,12 +1067,16 @@ static int balance_level(struct btrfs_trans_handle *trans,
 		 */
 		BUG_ON(!left);
 		wret = balance_node_right(trans, root, mid, left);
+		printf("balance node right mid items were 1 now %d, left is %d wret %d\n",
+		       btrfs_header_nritems(mid), btrfs_header_nritems(left), wret);
 		if (wret < 0) {
 			ret = wret;
 			goto enospc;
 		}
 		if (wret == 1) {
 			wret = push_node_left(trans, root, left, mid, 1);
+			printf("push node left after balance now %d, left is %d wret %d\n",
+			       btrfs_header_nritems(mid), btrfs_header_nritems(left), wret);
 			if (wret < 0)
 				ret = wret;
 		}
@@ -1095,6 +1103,8 @@ static int balance_level(struct btrfs_trans_handle *trans,
 		/* update the parent key to reflect our changes */
 		struct btrfs_disk_key mid_key;
 		btrfs_node_key(mid, &mid_key, 0);
+		printf("setting parent slot %d to [%llu %u %llu]\n",
+		       pslot, mid_key.objectid, mid_key.type, mid_key.offset);
 		btrfs_set_node_key(parent, &mid_key, pslot);
 		btrfs_mark_buffer_dirty(parent);
 		BUG_ON(check_path(path));
