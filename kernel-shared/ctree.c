@@ -1048,6 +1048,7 @@ static int balance_level(struct btrfs_trans_handle *trans,
 			btrfs_node_key(right, &right_key, 0);
 			btrfs_set_node_key(parent, &right_key, pslot + 1);
 			btrfs_mark_buffer_dirty(parent);
+			BUG_ON(check_path(path));
 		}
 	}
 	if (btrfs_header_nritems(mid) == 1) {
@@ -1096,6 +1097,7 @@ static int balance_level(struct btrfs_trans_handle *trans,
 		btrfs_node_key(mid, &mid_key, 0);
 		btrfs_set_node_key(parent, &mid_key, pslot);
 		btrfs_mark_buffer_dirty(parent);
+		BUG_ON(check_path(path));
 	}
 
 	/* update the path */
@@ -1113,6 +1115,7 @@ static int balance_level(struct btrfs_trans_handle *trans,
 		}
 	}
 	/* double check we haven't messed things up */
+	BUG_ON(check_path(path));
 	check_block(root->fs_info, path, level);
 	if (orig_ptr !=
 	    btrfs_node_blockptr(path->nodes[level], path->slots[level]))
