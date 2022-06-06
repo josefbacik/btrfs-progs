@@ -194,7 +194,7 @@ static int delete_item(struct btrfs_root *root, struct btrfs_key *key)
 		error("error searching for key?? %d root %llu node %llu commit %llu", ret, root->root_key.objectid, start, commit_root);
 		return ret;
 	}
-
+	BUG_ON(check_path(&path));
 	if (key->objectid == PROBLEM)
 		printf("DELETING IT????\n");
 	while (path.nodes[main_level] != NULL) main_level++;

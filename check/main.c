@@ -4450,7 +4450,7 @@ static int try_to_fix_bad_block(struct btrfs_root *root,
 	return ret;
 }
 
-static int check_block(struct btrfs_root *root,
+static int fcheck_block(struct btrfs_root *root,
 		       struct cache_tree *extent_cache,
 		       struct extent_buffer *buf, u64 flags)
 {
@@ -6418,7 +6418,7 @@ static int run_next_block(struct btrfs_root *root,
 		owner = btrfs_header_owner(buf);
 	}
 
-	ret = check_block(root, extent_cache, buf, flags);
+	ret = fcheck_block(root, extent_cache, buf, flags);
 	if (ret)
 		goto out;
 

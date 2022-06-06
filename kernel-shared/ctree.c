@@ -105,8 +105,6 @@ void btrfs_free_path(struct btrfs_path *p)
 	btrfs_release_path(p);
 	kfree(p);
 }
-static int noinline check_block(struct btrfs_fs_info *fs_info,
-				struct btrfs_path *path, int level);
 
 void btrfs_release_path(struct btrfs_path *p)
 {
@@ -811,7 +809,7 @@ fail:
 	return ret;
 }
 
-static int noinline check_block(struct btrfs_fs_info *fs_info,
+int noinline check_block(struct btrfs_fs_info *fs_info,
 				struct btrfs_path *path, int level)
 {
 	struct btrfs_key key;
@@ -1560,7 +1558,9 @@ void btrfs_fixup_low_keys( struct btrfs_path *path, struct btrfs_disk_key *key,
 		if (!path->nodes[i])
 			break;
 		t = path->nodes[i];
+		BUG_ON(check_block(t->fs_info, path, i));
 		btrfs_set_node_key(t, key, tslot);
+		BUG_ON(check_block(t->fs_info, path, i));
 		btrfs_mark_buffer_dirty(path->nodes[i]);
 		if (tslot != 0)
 			break;
@@ -3071,6 +3071,7 @@ int btrfs_del_items(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			      (nritems - slot - nr));
 	}
 	btrfs_set_header_nritems(leaf, nritems - nr);
+	BUG_ON(check_block(root->fs_info, path, 0));
 	nritems -= nr;
 
 	/* delete the leaf if we've emptied it */
@@ -3080,6 +3081,7 @@ int btrfs_del_items(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 		} else {
 			clean_tree_block(leaf);
 			wret = btrfs_del_leaf(trans, root, path, leaf);
+			BUG_ON(check_block(root->fs_info, path, 0));
 			BUG_ON(ret);
 			if (wret)
 				ret = wret;
@@ -3109,6 +3111,7 @@ int btrfs_del_items(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			if (path->nodes[0] == leaf &&
 			    btrfs_header_nritems(leaf)) {
 				wret = push_leaf_right(trans, root, path, 1, 1);
+				BUG_ON(check_block(root->fs_info, path, i));
 				if (wret < 0 && wret != -ENOSPC)
 					ret = wret;
 			}

@@ -2696,6 +2696,23 @@ u64 hash_extent_data_ref(u64 root_objectid, u64 owner, u64 offset);
 int btrfs_comp_cpu_keys(const struct btrfs_key *k1, const struct btrfs_key *k2);
 int btrfs_del_ptr(struct btrfs_root *root, struct btrfs_path *path,
 		int level, int slot);
+int noinline check_block(struct btrfs_fs_info *fs_info,
+				struct btrfs_path *path, int level);
+static inline int check_path(struct btrfs_path *path)
+{
+	int i;
+
+	for (i = 0; i < BTRFS_MAX_LEVEL; i++) {
+		if (path->nodes[i]) {
+			int ret = check_block(path->nodes[i]->fs_info,
+					      path, i);
+			if (ret)
+				return ret;
+		}
+	}
+	return 0;
+}
+
 enum btrfs_tree_block_status
 btrfs_check_node(struct btrfs_fs_info *fs_info,
 		 struct btrfs_key *parent_key, struct extent_buffer *buf);
