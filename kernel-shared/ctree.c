@@ -1025,8 +1025,9 @@ static int balance_level(struct btrfs_trans_handle *trans,
 	 */
 	if (right) {
 		wret = push_node_left(trans, root, mid, right, 1);
-		printf("push node left from right mid nritems %d right nritems %d\n",
-		       btrfs_header_nritems(mid), btrfs_header_nritems(right));
+		printf("push node left from right mid nritems %d right nritems %d parent %llu parent nritems %d\n",
+		       btrfs_header_nritems(mid), btrfs_header_nritems(right),
+		       parent->start, btrfs_header_nritems(parent));
 		if (wret < 0 && wret != -ENOSPC)
 			ret = wret;
 		if (btrfs_header_nritems(right) == 0) {
@@ -1037,6 +1038,8 @@ static int balance_level(struct btrfs_trans_handle *trans,
 			free_extent_buffer(right);
 			right = NULL;
 			wret = btrfs_del_ptr(root, path, level + 1, pslot + 1);
+			printf("parent nritems is now %d\n", btrfs_header_nritems(parent));
+			BUG_ON(check_path(path));
 			if (wret)
 				ret = wret;
 
