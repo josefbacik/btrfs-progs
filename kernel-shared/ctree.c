@@ -106,6 +106,38 @@ void btrfs_free_path(struct btrfs_path *p)
 	kfree(p);
 }
 
+static bool check_sibling_keys(struct extent_buffer *left,
+			       struct extent_buffer *right)
+{
+	struct btrfs_key left_last;
+	struct btrfs_key right_first;
+	int level = btrfs_header_level(left);
+	int nr_left = btrfs_header_nritems(left);
+	int nr_right = btrfs_header_nritems(right);
+
+	/* No key to check in one of the tree blocks */
+	if (!nr_left || !nr_right)
+		return false;
+
+	if (level) {
+		btrfs_node_key_to_cpu(left, &left_last, nr_left - 1);
+		btrfs_node_key_to_cpu(right, &right_first, 0);
+	} else {
+		btrfs_item_key_to_cpu(left, &left_last, nr_left - 1);
+		btrfs_item_key_to_cpu(right, &right_first, 0);
+	}
+
+	if (btrfs_comp_cpu_keys(&left_last, &right_first) >= 0) {
+		printf(
+"bad key order, sibling blocks, left last (%llu %u %llu) right first (%llu %u %llu)",
+			   left_last.objectid, left_last.type,
+			   left_last.offset, right_first.objectid,
+			   right_first.type, right_first.offset);
+		return true;
+	}
+	return false;
+}
+
 void btrfs_release_path(struct btrfs_path *p)
 {
 	int i, ret;
@@ -613,11 +645,11 @@ static void generic_err(const struct extent_buffer *buf, int slot,
 		start = 2;
 	}
 
-	fprintf(stderr, "corrupt %s: root=%lld root bytenr %llu commit bytenr %llu block=%llu physical=%llu slot=%d, ",
+	fprintf(stderr, "corrupt %s: root=%lld root bytenr %llu commit bytenr %llu block=%llu physical=%llu slot=%d level %d, ",
 		btrfs_header_level(buf) == 0 ? "leaf": "node",
 		btrfs_header_owner(buf), start, commit_start,
 		btrfs_header_bytenr(buf),
-		buf->dev_bytenr, slot);
+		buf->dev_bytenr, slot, btrfs_header_level(buf));
 	va_start(args, fmt);
 	vfprintf(stderr, fmt, args);
 	va_end(args);
@@ -1025,8 +1057,8 @@ static int balance_level(struct btrfs_trans_handle *trans,
 	 */
 	if (right) {
 		wret = push_node_left(trans, root, mid, right, 1);
-		printf("push node left from right mid nritems %d right nritems %d parent %llu parent nritems %d\n",
-		       btrfs_header_nritems(mid), btrfs_header_nritems(right),
+		printf("push node left from right mid %llu nritems %d right %llu nritems %d parent %llu parent nritems %d\n", mid->start,
+		       btrfs_header_nritems(mid), right->start, btrfs_header_nritems(right),
 		       parent->start, btrfs_header_nritems(parent));
 		if (wret < 0 && wret != -ENOSPC)
 			ret = wret;
@@ -1683,6 +1715,7 @@ static int push_node_left(struct btrfs_trans_handle *trans,
 	} else
 		push_items = min(src_nritems - 8, push_items);
 
+	BUG_ON(check_sibling_keys(dst, src));
 	copy_extent_buffer(dst, src,
 			   btrfs_node_key_ptr_offset(dst_nritems),
 			   btrfs_node_key_ptr_offset(0),
