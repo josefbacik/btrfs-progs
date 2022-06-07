@@ -983,6 +983,7 @@ again:
 			delete_slot(eb, i);
 			if (prev)
 				free_extent_buffer_nocache(prev);
+			prev = NULL;
 			start = 0;
 			goto again;
 		} else {
