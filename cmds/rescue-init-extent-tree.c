@@ -242,7 +242,8 @@ static int process_leaf_item(struct btrfs_root *root,
 
 	block_group = btrfs_lookup_block_group(eb->fs_info, bytenr);
 	if (!block_group) {
-		printf("\nFound an extent we don't have a block group for in the file\n");
+		printf("\nFound an extent we don't have a block group for in the file %llu\n", bytenr);
+		BUG_ON(bytenr);
 		goto delete_it;
 	}
 
