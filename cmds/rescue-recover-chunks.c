@@ -41,6 +41,15 @@ static struct dev_info *find_devid(u64 devid)
 	return NULL;
 }
 
+static bool in_range(u64 a_start, u64 a_len, u64 b_start, u64 b_len)
+{
+	if (a_start + a_len <= b_start)
+		return false;
+	if (b_start + b_len <= a_start)
+		return false;
+	return true;
+}
+
 static int check_stripes(struct extent_buffer *eb, struct btrfs_chunk *chunk)
 {
 	struct dev_info *info;
@@ -79,6 +88,7 @@ static int search_leaf(struct extent_buffer *eb)
 	int i, num_stripes;
 
 	for (i = 0; i < btrfs_header_nritems(eb); i++) {
+		bool debug = false;
 		btrfs_item_key_to_cpu(eb, &key, i);
 
 		if (key.type != BTRFS_CHUNK_ITEM_KEY)
@@ -89,15 +99,25 @@ static int search_leaf(struct extent_buffer *eb)
 		len = btrfs_chunk_length(eb, chunk);
 		num_stripes = btrfs_chunk_num_stripes(eb, chunk);
 
+		if (in_range(1258276585472, 0, bytenr, len)) {
+			debug = true;
+			printf("OK WE FOUND A CHUNK %llu\n", bytenr);
+		}
 		type = btrfs_chunk_type(eb, chunk) &
 			BTRFS_BLOCK_GROUP_PROFILE_MASK;
 
 		if (test_range_bit(&chunks, bytenr, bytenr + len - 1,
-				   EXTENT_DIRTY, 0))
+				   EXTENT_DIRTY, 0)) {
+			if (debug)
+				printf("ALREADY SET IN OUR TRE??\n");
 			continue;
+		}
 
-		if (!check_stripes(eb, chunk))
+		if (!check_stripes(eb, chunk)) {
+			if (debug)
+				printf("CHECK STRIPES OVERLAPPED????\n");
 			continue;
+		}
 
 		printf("Found missing chunk %llu-%llu type %llu\n", bytenr,
 		       bytenr + len, type);
@@ -221,15 +241,6 @@ static int populate_stripes(struct extent_buffer *eb,
 	}
 
 	return 0;
-}
-
-static bool in_range(u64 a_start, u64 a_len, u64 b_start, u64 b_len)
-{
-	if (a_start + a_len <= b_start)
-		return false;
-	if (b_start + b_len <= a_start)
-		return false;
-	return true;
 }
 
 static bool chunk_infos_overlap(struct chunk_info *a, struct chunk_info *b)
