@@ -170,11 +170,14 @@ out:
 	return ret;
 }
 
-static int delete_item(struct btrfs_root *root, struct btrfs_key *key)
+static int delete_items(struct btrfs_root *root, struct btrfs_key *key,
+			struct btrfs_key *end_key)
 {
 	struct btrfs_trans_handle *trans;
+	struct btrfs_key found_key;
 	struct btrfs_path path;
 	int ret, main_level = 0;
+	int end_slot;
 
 	print_paths(root, key->objectid);
 	trans = btrfs_start_transaction(root, 1);
@@ -194,18 +197,25 @@ static int delete_item(struct btrfs_root *root, struct btrfs_key *key)
 		error("error searching for key?? %d root %llu node %llu commit %llu", ret, root->root_key.objectid, start, commit_root);
 		return ret;
 	}
-	BUG_ON(check_path(&path));
-	if (key->objectid == PROBLEM)
-		printf("DELETING IT????\n");
+
+	for (end_slot = path.slots[0] + 1;
+	     end_slot < btrfs_header_nritems(path.nodes[0]); end_slot++) {
+		btrfs_item_key_to_cpu(path.nodes[0], &found_key, end_slot);
+		if (btrfs_comp_cpu_keys(&found_key, end_key) >= 0)
+			break;
+	}
+
 	while (path.nodes[main_level] != NULL) main_level++;
 	main_level--;
-	printf("Deleting [%llu, %u, %llu] root %llu path top %llu top slot %d leaf %llu slot %d\n",
+	printf("Deleting [%llu, %u, %llu] root %llu path top %llu top slot %d leaf %llu slot %d nr %d\n",
 	       key->objectid, key->type,
 	       key->offset, root->node->start,
 	       path.nodes[main_level]->start,
 	       path.slots[main_level],
-	       path.nodes[0]->start, path.slots[0]);
-	ret = btrfs_del_item(trans, root, &path);
+	       path.nodes[0]->start, path.slots[0],
+	       end_slot - path.slots[0]);
+	ret = btrfs_del_items(trans, root, &path, path.slots[0],
+			      end_slot - path.slots[0]);
 	if (ret) {
 		error("couldn't delete item %d", ret);
 		return ret;
@@ -220,14 +230,14 @@ static int delete_item(struct btrfs_root *root, struct btrfs_key *key)
 }
 
 static int process_leaf_item(struct btrfs_root *root,
-			     struct extent_buffer *eb, int slot)
+			     struct extent_buffer *eb,
+			     struct btrfs_key *del_key, int slot)
 {
 	struct btrfs_file_extent_item *fi;
 	struct btrfs_block_group *block_group;
 	struct data_extent *de = NULL;
 	struct btrfs_key key;
 	u64 bytenr, num_bytes, gen;
-	int ret;
 
 	btrfs_item_key_to_cpu(eb, &key, slot);
 	if (key.type != BTRFS_EXTENT_DATA_KEY)
@@ -294,8 +304,7 @@ static int process_leaf_item(struct btrfs_root *root,
 
 	return 0;
 delete_it:
-	ret = delete_item(root, &key);
-
+	memcpy(del_key, &key, sizeof(struct btrfs_key));
 	/*
 	 * We need to delete this de as we've deleted it and we only want to
 	 * freak out if we find more overlaps.
@@ -304,8 +313,6 @@ delete_it:
 		rb_erase(&de->n, &data_extents);
 		free(de);
 	}
-	if (ret)
-		return ret;
 	return 1;
 }
 
@@ -313,10 +320,14 @@ static int look_for_bad_extents(struct btrfs_root *root,
 				struct extent_buffer *eb,
 				u64 *current)
 {
+	struct btrfs_key first_key = {}, end_key;
 	int pct;
 	int i, ret;
 
+
 	for (i = 0; i < btrfs_header_nritems(eb); i++) {
+		struct btrfs_key key;
+
 		if (btrfs_header_level(eb) != 0) {
 			struct extent_buffer *tmp;
 			u64 bytenr, gen;
@@ -335,9 +346,21 @@ static int look_for_bad_extents(struct btrfs_root *root,
 			continue;
 		}
 
-		ret = process_leaf_item(root, eb, i);
+		ret = process_leaf_item(root, eb, &key, i);
+		if (ret < 0)
+			return ret;
+		if (ret > 0) {
+			if (first_key.objectid == 0)
+				memcpy(&first_key, &key, sizeof(struct btrfs_key));
+			memcpy(&end_key, &key, sizeof(struct btrfs_key));
+		}
+	}
+
+	if (first_key.objectid != 0) {
+		ret = delete_items(root, &first_key, &end_key);
 		if (ret)
 			return ret;
+		return 1;
 	}
 
 	*current += root->fs_info->nodesize;

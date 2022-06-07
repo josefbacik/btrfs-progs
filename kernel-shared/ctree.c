@@ -3160,7 +3160,6 @@ int btrfs_del_items(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			if (path->nodes[0] == leaf &&
 			    btrfs_header_nritems(leaf)) {
 				wret = push_leaf_right(trans, root, path, 1, 1);
-				BUG_ON(check_block(root->fs_info, path, i));
 				if (wret < 0 && wret != -ENOSPC)
 					ret = wret;
 			}
