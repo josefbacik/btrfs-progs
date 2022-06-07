@@ -782,10 +782,97 @@ static void rewrite_slot(struct extent_buffer *eb, int slot,
 	write_tree_block(NULL, eb->fs_info, eb);
 }
 
+static int push_right(struct extent_buffer *parent,
+		     struct extent_buffer *left,
+		     struct extent_buffer *right, int pslot)
+{
+	struct btrfs_key first_key, key;
+
+	if (btrfs_header_level(left)) {
+		btrfs_node_key_to_cpu(right, &first_key, 0);
+		btrfs_node_key_to_cpu(left, &key, 0);
+	} else {
+		btrfs_item_key_to_cpu(right, &first_key, 0);
+		btrfs_item_key_to_cpu(left, &key, 0);
+	}
+
+	/*
+	 * If the last key is greater than the last key on the main block then
+	 * we can just delete it from the parent.  pslot is the slot of right,
+	 * so we do pslot - 1 for the left parent slot.
+	 */
+	if (btrfs_comp_cpu_keys(&first_key, &key) >= 0) {
+		printf("left block contains bad key ordering, removing it %llu",
+		       left->start);
+		delete_slot(parent, pslot - 1);
+		return 1;
+	}
+
+	while (btrfs_header_nritems(left)) {
+		if (btrfs_header_level(right))
+			btrfs_node_key_to_cpu(left, &key,
+					      btrfs_header_nritems(left) - 1);
+		else
+			btrfs_item_key_to_cpu(left, &key,
+					      btrfs_header_nritems(left) - 1);
+
+		if (btrfs_comp_cpu_keys(&key, &first_key) < 0)
+			break;
+		printf("bad key ordering, shifting left on %llu",
+		       left->start);
+		delete_slot(left, btrfs_header_nritems(left) - 1);
+	}
+	return 0;
+}
+static int push_left(struct extent_buffer *parent,
+		     struct extent_buffer *left,
+		     struct extent_buffer *right, int pslot)
+{
+	struct btrfs_key first_key, key;
+
+	if (btrfs_header_level(left)) {
+		btrfs_node_key_to_cpu(left, &first_key,
+				      btrfs_header_nritems(left) - 1);
+		btrfs_node_key_to_cpu(right, &key,
+				      btrfs_header_nritems(right) - 1);
+	} else {
+		btrfs_item_key_to_cpu(left, &first_key,
+				      btrfs_header_nritems(left) - 1);
+		btrfs_item_key_to_cpu(right, &key,
+				      btrfs_header_nritems(right) - 1);
+	}
+
+	/*
+	 * If the last key is greater than the last key on the main block then
+	 * we
+	 */
+	if (btrfs_comp_cpu_keys(&first_key, &key) >= 0) {
+		printf("right block contains bad key ordering, removing it %llu",
+		       right->start);
+		delete_slot(parent, pslot);
+		return 1;
+	}
+
+	while (btrfs_header_nritems(right)) {
+		if (btrfs_header_level(right))
+			btrfs_node_key_to_cpu(right, &key, 0);
+		else
+			btrfs_item_key_to_cpu(right, &key, 0);
+
+		if (btrfs_comp_cpu_keys(&key, &first_key) < 0)
+			break;
+		printf("bad key ordering, shifting right on %llu",
+		       right->start);
+		delete_slot(right, 0);
+	}
+	return 0;
+}
+
 static int repair_tree(struct btrfs_fs_info *fs_info,
 		       struct root_info *root_info, struct extent_buffer *eb)
 {
 	struct btrfs_key prev_last = {};
+	struct extent_buffer *prev = NULL;
 	struct block_info *info;
 	int start = 0;
 	int i, ret = 0;
@@ -831,17 +918,41 @@ again:
 			goto again;
 		}
 
-		if (!btrfs_header_level(tmp)) {
-			free_extent_buffer_nocache(tmp);
-			continue;
+		if (btrfs_header_level(tmp))
+			btrfs_node_key_to_cpu(tmp, &first_key, 0);
+		else
+			btrfs_item_key_to_cpu(tmp, &first_key, 0);
+
+		if (btrfs_comp_cpu_keys(&prev_last, &first_key) >= 0) {
+			if (btrfs_header_generation(prev) >
+			    btrfs_header_generation(tmp))
+				ret = push_left(eb, prev, tmp, i);
+			else
+				ret = push_right(eb, prev, tmp, i);
+			if (ret > 0) {
+				ret = 0;
+				start = 0;
+				free_extent_buffer_nocache(tmp);
+				free_extent_buffer_nocache(prev);
+				prev = NULL;
+				goto again;
+			} else if (ret < 0) {
+				break;
+			}
 		}
-		btrfs_node_key_to_cpu(tmp, &first_key, 0);
-		btrfs_node_key_to_cpu(tmp, &prev_last,
-				      btrfs_header_nritems(tmp) - 1);
-		ret = repair_tree(fs_info, root_info, tmp);
-		if (ret) {
-			free_extent_buffer_nocache(tmp);
-			break;
+
+		if (!btrfs_header_level(tmp)) {
+			btrfs_item_key_to_cpu(tmp, &prev_last,
+					      btrfs_header_nritems(tmp) - 1);
+		} else {
+			btrfs_node_key_to_cpu(tmp, &prev_last,
+					      btrfs_header_nritems(tmp) - 1);
+			ret = repair_tree(fs_info, root_info, tmp);
+			if (ret) {
+				free_extent_buffer_nocache(tmp);
+				free_extent_buffer_nocache(prev);
+				break;
+			}
 		}
 
 		/*
@@ -854,23 +965,29 @@ again:
 				i, eb->start);
 			delete_slot(eb, i);
 		} else {
+			struct btrfs_key key;
 			/*
-			 * At this point we don't need prev last, load the 0
-			 * node key from tmp as it is currently in case we had
-			 * to delete that slot so we can update our pointer if
-			 * we need to.
+			 * Our key  may have changed, update our parent
 			 */
-			btrfs_node_key_to_cpu(tmp, &prev_last, 0);
-			if (btrfs_comp_cpu_keys(&first_key, &prev_last)) {
+			if (btrfs_header_level(tmp))
+				btrfs_node_key_to_cpu(tmp, &key, 0);
+			else
+				btrfs_item_key_to_cpu(tmp, &key, 0);
+			if (btrfs_comp_cpu_keys(&first_key, &key)) {
 				struct btrfs_disk_key disk_key;
 
-				btrfs_cpu_key_to_disk(&disk_key, &prev_last);
+				btrfs_cpu_key_to_disk(&disk_key, &key);
 				btrfs_set_node_key(eb, &disk_key, i);
 				write_tree_block(NULL, fs_info, eb);
 			}
 		}
-		free_extent_buffer_nocache(tmp);
+		if (prev)
+			free_extent_buffer_nocache(prev);
+		prev = tmp;
 	}
+
+	if (prev)
+		free_extent_buffer_nocache(prev);
 	return ret;
 }
 
