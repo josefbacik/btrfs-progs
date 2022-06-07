@@ -887,13 +887,14 @@ static int push_left(struct extent_buffer *parent,
 static int repair_tree(struct btrfs_fs_info *fs_info,
 		       struct root_info *root_info, struct extent_buffer *eb)
 {
-	struct btrfs_key prev_last = {};
+	struct btrfs_key prev_last;
 	struct extent_buffer *prev = NULL;
 	struct block_info *info;
 	int start = 0;
 	int i, ret = 0;
 
 again:
+	memset(&prev_last, 0, sizeof(prev_last));
 	for (i = start; i < btrfs_header_nritems(eb); i++) {
 		struct extent_buffer *tmp;
 		struct btrfs_key first_key;
@@ -980,6 +981,10 @@ again:
 			fprintf(stderr, "we're pointing at an empty node, delete slot %d in block %llu\n",
 				i, eb->start);
 			delete_slot(eb, i);
+			if (prev)
+				free_extent_buffer_nocache(prev);
+			start = 0;
+			goto again;
 		} else {
 			struct btrfs_key key;
 			/*
