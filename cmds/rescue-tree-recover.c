@@ -198,6 +198,7 @@ static bool is_good_block(struct extent_buffer *parent,
 static void get_tree_info(struct btrfs_fs_info *fs_info,
 			  struct extent_buffer *eb, struct root_info *info)
 {
+	struct btrfs_key prev_last = {}, first;
 	int i;
 
 	if (btrfs_header_level(eb) == 0)
@@ -221,6 +222,21 @@ static void get_tree_info(struct btrfs_fs_info *fs_info,
 			info->bad_blocks++;
 			continue;
 		}
+
+		if (btrfs_header_level(tmp))
+			btrfs_node_key_to_cpu(tmp, &first, 0);
+		else
+			btrfs_item_key_to_cpu(tmp, &first, 0);
+
+		if (btrfs_comp_cpu_keys(&prev_last, &first) >= 0)
+			info->bad_blocks++;
+
+		if (btrfs_header_level(tmp))
+			btrfs_node_key_to_cpu(tmp, &prev_last,
+					      btrfs_header_nritems(tmp) - 1);
+		else
+			btrfs_item_key_to_cpu(tmp, &prev_last,
+					      btrfs_header_nritems(tmp) - 1);
 
 		/*
 		 * If we're the same owner as our child then we can mark this as
@@ -970,13 +986,14 @@ again:
 			 * Our key  may have changed, update our parent
 			 */
 			if (btrfs_header_level(tmp))
-				btrfs_node_key_to_cpu(tmp, &key, 0);
+				btrfs_node_key_to_cpu(tmp, &first_key, 0);
 			else
-				btrfs_item_key_to_cpu(tmp, &key, 0);
+				btrfs_item_key_to_cpu(tmp, &first_key, 0);
+			btrfs_node_key_to_cpu(eb, &key, 0);
 			if (btrfs_comp_cpu_keys(&first_key, &key)) {
 				struct btrfs_disk_key disk_key;
 
-				btrfs_cpu_key_to_disk(&disk_key, &key);
+				btrfs_cpu_key_to_disk(&disk_key, &first_key);
 				btrfs_set_node_key(eb, &disk_key, i);
 				write_tree_block(NULL, fs_info, eb);
 			}
