@@ -140,7 +140,7 @@ static bool check_sibling_keys(struct extent_buffer *left,
 
 void btrfs_release_path(struct btrfs_path *p)
 {
-	int i, ret;
+	int i;
 	for (i = 0; i < BTRFS_MAX_LEVEL; i++) {
 		if (!p->nodes[i])
 			continue;

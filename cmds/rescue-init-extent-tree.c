@@ -597,6 +597,62 @@ static int reinit_global_roots(struct btrfs_trans_handle *trans, u64 objectid)
 	return ret;
 }
 
+/*
+ * This loads the block groups from the sys array, it skips all the sanity
+ * checking, we're relying on btrfs_read_sys_array() to do that for us.
+ */
+static int read_sys_array(struct btrfs_fs_info *fs_info)
+{
+	struct btrfs_super_block *super_copy = fs_info->super_copy;
+	struct extent_buffer *sb;
+	struct btrfs_disk_key *disk_key;
+	struct btrfs_chunk *chunk;
+	u8 *array_ptr;
+	unsigned long sb_array_offset;
+	u32 num_stripes;
+	u32 array_size;
+	u32 len = 0;
+	u32 cur_offset;
+	struct btrfs_key key;
+
+	sb = alloc_dummy_extent_buffer(fs_info, BTRFS_SUPER_INFO_OFFSET,
+				       BTRFS_SUPER_INFO_SIZE);
+	if (!sb)
+		return -ENOMEM;
+	btrfs_set_buffer_uptodate(sb);
+	write_extent_buffer(sb, super_copy, 0, sizeof(*super_copy));
+	array_size = btrfs_super_sys_array_size(super_copy);
+
+	array_ptr = super_copy->sys_chunk_array;
+	sb_array_offset = offsetof(struct btrfs_super_block, sys_chunk_array);
+	cur_offset = 0;
+
+	while (cur_offset < array_size) {
+		disk_key = (struct btrfs_disk_key *)array_ptr;
+		len = sizeof(*disk_key);
+		btrfs_disk_key_to_cpu(&key, disk_key);
+
+		array_ptr += len;
+		sb_array_offset += len;
+		cur_offset += len;
+
+		chunk = (struct btrfs_chunk *)sb_array_offset;
+		num_stripes = btrfs_chunk_num_stripes(sb, chunk);
+		len = btrfs_chunk_item_size(num_stripes);
+
+		btrfs_add_block_group(fs_info, 0,
+				      btrfs_chunk_type(sb, chunk), key.offset,
+				      btrfs_chunk_length(sb, chunk));
+		set_extent_dirty(&fs_info->free_space_cache, key.offset,
+				 key.offset + btrfs_chunk_length(sb, chunk));
+		array_ptr += len;
+		sb_array_offset += len;
+		cur_offset += len;
+	}
+	free_extent_buffer(sb);
+	return 0;
+}
+
 static int reset_block_groups(struct btrfs_trans_handle *trans)
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;
@@ -608,6 +664,19 @@ static int reset_block_groups(struct btrfs_trans_handle *trans)
 	int ret;
 	u64 start;
 
+	/*
+	 * We do this in case the block groups were screwed up and had alloc
+	 * bits that aren't actually set on the chunks.  This happens with
+	 * restored images every time and could happen in real life I guess.
+	 */
+	fs_info->avail_data_alloc_bits = 0;
+	fs_info->avail_metadata_alloc_bits = 0;
+	fs_info->avail_system_alloc_bits = 0;
+
+	ret = read_sys_array(fs_info);
+	if (ret)
+		return ret;
+
 	btrfs_init_path(&path);
 	key.objectid = 0;
 	key.type = BTRFS_CHUNK_ITEM_KEY;
@@ -617,15 +686,6 @@ static int reset_block_groups(struct btrfs_trans_handle *trans)
 		btrfs_release_path(&path);
 		return ret;
 	}
-
-	/*
-	 * We do this in case the block groups were screwed up and had alloc
-	 * bits that aren't actually set on the chunks.  This happens with
-	 * restored images every time and could happen in real life I guess.
-	 */
-	fs_info->avail_data_alloc_bits = 0;
-	fs_info->avail_metadata_alloc_bits = 0;
-	fs_info->avail_system_alloc_bits = 0;
 
 	/* First we need to create the in-memory block groups */
 	while (1) {
