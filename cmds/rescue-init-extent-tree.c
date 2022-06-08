@@ -683,21 +683,28 @@ static int reinit_data_reloc_root(struct btrfs_fs_info *fs_info)
 	};
 	int ret;
 
-	root = btrfs_read_fs_root(fs_info, &key);
-	if (IS_ERR(root)) {
-		error("Error reading data reloc tree %ld\n", PTR_ERR(root));
-		return PTR_ERR(root);
-	}
-
-	trans = btrfs_start_transaction(root, 0);
+	trans = btrfs_start_transaction(fs_info->tree_root, 0);
 	if (IS_ERR(trans)) {
 		error("error starting transaction for data reloc root");
 		return PTR_ERR(trans);
 	}
 
-	ret = btrfs_fsck_reinit_root(trans, root);
-	if (ret)
-		return ret;
+	root = btrfs_read_fs_root(fs_info, &key);
+	if (IS_ERR(root)) {
+		error("Error reading data reloc tree %ld, creating it\n", PTR_ERR(root));
+		root = btrfs_create_tree(trans, fs_info, key.objectid);
+		if (IS_ERR(root)) {
+			error("Error creating data reloc root %ld", PTR_ERR(root));
+			return PTR_ERR(root);
+		}
+	} else {
+		ret = btrfs_fsck_reinit_root(trans, root);
+		if (ret)
+			return ret;
+	}
+
+	add_root_to_dirty_list(root);
+
 	ret = btrfs_make_root_dir(trans, root, BTRFS_FIRST_FREE_OBJECTID);
 	if (!ret)
 		ret = btrfs_commit_transaction(trans, root);
@@ -1155,8 +1162,8 @@ static int record_root(struct btrfs_root *root)
 		 * else return the error.
 		 */
 		if (ret != -EEXIST || is_fstree(root->root_key.objectid)) {
-			error("failed to insert the ref for the root block %d",
-			      ret);
+			error("failed to insert the ref for the root block %llu root %llu %d",
+			      key.objectid, root->root_key.objectid, ret);
 			return ret;
 		}
 		ret = 0;
