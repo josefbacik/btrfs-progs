@@ -8449,6 +8449,49 @@ static int check_chunk_refs(struct chunk_record *chunk_rec,
 					chunk_rec->offset,
 					chunk_rec->stripes[i].devid,
 					chunk_rec->stripes[i].offset);
+			if (repair) {
+				struct btrfs_trans_handle *trans;
+				struct btrfs_dev_extent *dev_extent;
+				struct btrfs_path path;
+				struct btrfs_key key = {
+					.objectid = chunk_rec->stripes[i].devid,
+					.type = BTRFS_DEV_EXTENT_KEY,
+					.offset = chunk_rec->stripes[i].offset,
+				};
+
+				btrfs_init_path(&path);
+
+				trans = btrfs_start_transaction(gfs_info->dev_root, 0);
+				if (IS_ERR(trans)) {
+					error("Couldn't start transaction");
+					return PTR_ERR(trans);
+				}
+
+				ret = btrfs_insert_empty_item(trans, gfs_info->dev_root,
+							      &path, &key,
+							      sizeof(struct btrfs_dev_extent));
+				if (ret) {
+					error("Couldn't insert missing dev extent %d\n", ret);
+					return ret;
+				}
+
+				dev_extent = btrfs_item_ptr(path.nodes[0],
+							    path.slots[0],
+							    struct btrfs_dev_extent);
+				btrfs_set_dev_extent_chunk_objectid(path.nodes[0], dev_extent,
+								    chunk_rec->objectid);
+				btrfs_set_dev_extent_chunk_offset(path.nodes[0], dev_extent,
+								  chunk_rec->offset);
+				btrfs_set_dev_extent_length(path.nodes[0], dev_extent,
+							    length);
+				btrfs_mark_buffer_dirty(path.nodes[0]);
+				btrfs_release_path(&path);
+				ret = btrfs_commit_transaction(trans, gfs_info->dev_root);
+				if (ret) {
+					error("Commit transaction failed %d", ret);
+					return ret;
+				}
+			}
 			ret = -1;
 		}
 	}
