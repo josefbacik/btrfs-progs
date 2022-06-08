@@ -707,7 +707,7 @@ static int reinit_data_reloc_root(struct btrfs_fs_info *fs_info)
 
 	ret = btrfs_make_root_dir(trans, root, BTRFS_FIRST_FREE_OBJECTID);
 	if (!ret)
-		ret = btrfs_commit_transaction(trans, root);
+		ret = btrfs_commit_transaction(trans, fs_info->tree_root);
 	return ret;
 }
 
