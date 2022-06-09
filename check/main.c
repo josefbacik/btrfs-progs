@@ -8643,6 +8643,94 @@ static bool is_super_size_valid(void)
 	return true;
 }
 
+static int try_add_device_record(struct btrfs_device *device)
+{
+	struct btrfs_trans_handle *trans;
+	struct btrfs_dev_item *dev_item, *s_item;
+	struct extent_buffer *leaf;
+	struct btrfs_super_block disk_super;
+	struct btrfs_path path;
+	struct btrfs_key key = {
+		.objectid = BTRFS_DEV_ITEMS_OBJECTID,
+		.type = BTRFS_DEV_ITEM_KEY,
+		.offset = device->devid,
+	};
+	unsigned long ptr;
+	int ret;
+
+	btrfs_init_path(&path);
+
+	/*
+	 * We likely have multiple dev extents missing our devid so just check
+	 * to make sure we didn't already add it.
+	 */
+	ret = btrfs_search_slot(NULL, gfs_info->dev_root, &key, &path, 0, 0);
+	btrfs_release_path(&path);
+	if (ret == 0)
+		return 0;
+
+	ret = btrfs_read_dev_super(device->fd, &disk_super,
+				   BTRFS_SUPER_INFO_OFFSET, 0);
+	if (ret < 0) {
+		error("Couldn't read disk super");
+		return ret;
+	}
+
+	trans = btrfs_start_transaction(gfs_info->dev_root, 0);
+	if (IS_ERR(trans)) {
+		error("Couldn't start transaction");
+		return PTR_ERR(trans);
+	}
+
+	ret = btrfs_insert_empty_item(trans, gfs_info->chunk_root,
+				      &path, &key,
+				      sizeof(struct btrfs_dev_item));
+	if (ret) {
+		error("Couldn't insert missing dev item %d\n", ret);
+		return ret;
+	}
+
+	/*
+	 * We don't have the original values for this device, so just use the
+	 * defaults for the fs and let check fix the accounting later.
+	 */
+	leaf = path.nodes[0];
+	s_item = &disk_super.dev_item;
+	dev_item = btrfs_item_ptr(leaf, path.slots[0], struct btrfs_dev_item);
+	btrfs_set_device_id(leaf, dev_item, device->devid);
+	btrfs_set_device_generation(leaf, dev_item, 0);
+	btrfs_set_device_type(leaf, dev_item, btrfs_stack_device_type(s_item));
+	btrfs_set_device_io_align(leaf, dev_item,
+				  btrfs_stack_device_io_align(s_item));
+	btrfs_set_device_io_width(leaf, dev_item,
+				  btrfs_stack_device_io_width(s_item));
+	btrfs_set_device_sector_size(leaf, dev_item,
+				     btrfs_stack_device_sector_size(s_item));
+	btrfs_set_device_total_bytes(leaf, dev_item,
+				     btrfs_stack_device_total_bytes(s_item));
+	btrfs_set_device_bytes_used(leaf, dev_item,
+				    btrfs_stack_device_bytes_used(s_item));
+	btrfs_set_device_group(leaf, dev_item, 0);
+	btrfs_set_device_seek_speed(leaf, dev_item, 0);
+	btrfs_set_device_bandwidth(leaf, dev_item, 0);
+	btrfs_set_device_start_offset(leaf, dev_item, 0);
+
+	ptr = (unsigned long)btrfs_device_uuid(dev_item);
+	write_extent_buffer(leaf, device->uuid, ptr, BTRFS_UUID_SIZE);
+	ptr = (unsigned long)btrfs_device_fsid(dev_item);
+	write_extent_buffer(leaf, gfs_info->fs_devices->metadata_uuid, ptr,
+			    BTRFS_UUID_SIZE);
+	btrfs_mark_buffer_dirty(leaf);
+	btrfs_release_path(&path);
+	ret = btrfs_commit_transaction(trans, gfs_info->chunk_root);
+	if (ret) {
+		error("Commit transaction failed %d", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 /* check btrfs_dev_item -> btrfs_dev_extent */
 static int check_devices(struct rb_root *dev_cache,
 			 struct device_extent_tree *dev_extent_cache)
@@ -8669,6 +8757,15 @@ static int check_devices(struct rb_root *dev_cache,
 		fprintf(stderr,
 			"Device extent[%llu, %llu, %llu] didn't find its device.\n",
 			dext_rec->objectid, dext_rec->offset, dext_rec->length);
+		if (repair) {
+			struct btrfs_device *device;
+
+			device = btrfs_find_device_by_devid(gfs_info->fs_devices,
+							    dext_rec->objectid,
+							    0);
+			if (device)
+				ret = try_add_device_record(device);
+		}
 		if (!ret)
 			ret = 1;
 	}
