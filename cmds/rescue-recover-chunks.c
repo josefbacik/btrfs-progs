@@ -147,11 +147,122 @@ static int search_leaf(struct extent_buffer *eb)
 	return 0;
 }
 
+/*
+ * This reads all the chunks from the system array.  It skips all the sanity
+ * checks as they are done at open_ctree() time.
+ */
+static int read_sys_array(struct btrfs_fs_info *fs_info,
+			  struct btrfs_super_block *super_copy)
+{
+	struct extent_buffer *sb;
+	struct btrfs_disk_key *disk_key;
+	struct btrfs_chunk *chunk;
+	struct chunk_info *chunk_info;
+	u8 *array_ptr;
+	unsigned long sb_array_offset;
+	u32 num_stripes;
+	u32 array_size;
+	u32 len = 0;
+	u32 cur_offset;
+	struct btrfs_key key;
+
+	sb = alloc_dummy_extent_buffer(fs_info, BTRFS_SUPER_INFO_OFFSET,
+				       BTRFS_SUPER_INFO_SIZE);
+	if (!sb)
+		return -ENOMEM;
+	btrfs_set_buffer_uptodate(sb);
+	write_extent_buffer(sb, super_copy, 0, sizeof(*super_copy));
+	array_size = btrfs_super_sys_array_size(super_copy);
+
+	array_ptr = super_copy->sys_chunk_array;
+	sb_array_offset = offsetof(struct btrfs_super_block, sys_chunk_array);
+	cur_offset = 0;
+
+	while (cur_offset < array_size) {
+		u64 type, bytenr, num_bytes;
+
+		disk_key = (struct btrfs_disk_key *)array_ptr;
+		len = sizeof(*disk_key);
+		btrfs_disk_key_to_cpu(&key, disk_key);
+
+		array_ptr += len;
+		sb_array_offset += len;
+		cur_offset += len;
+
+		chunk = (struct btrfs_chunk *)sb_array_offset;
+		type = btrfs_chunk_type(sb, chunk);
+		bytenr = key.offset;
+		num_bytes = btrfs_chunk_length(sb, chunk);
+		num_stripes = btrfs_chunk_num_stripes(sb, chunk);
+		len = btrfs_chunk_item_size(num_stripes);
+
+		if (test_range_bit(&chunks, bytenr, bytenr + num_bytes - 1,
+				   EXTENT_DIRTY, 0))
+			goto next;
+
+		if (!check_stripes(sb, chunk))
+			goto next;
+
+		printf("Found missing chunk in super block %llu-%llu type %llu\n",
+		       bytenr, bytenr + num_bytes, type);
+		chunk_info = malloc(sizeof(struct chunk_info));
+		if (!chunk_info) {
+			error("Couldn't allocate chunk_info");
+			return -ENOMEM;
+		}
+		chunk_info->chunk = malloc(len);
+		if (!chunk_info->chunk) {
+			error("Couldn't allocate chunk");
+			free(chunk_info);
+			return -ENOMEM;
+		}
+
+		memcpy(chunk_info->chunk, array_ptr, len);
+		chunk_info->num_stripes = num_stripes;
+		memcpy(&chunk_info->key, &key, sizeof(struct btrfs_key));
+		INIT_LIST_HEAD(&chunk_info->list);
+		list_add_tail(&chunk_info->list, &missing);
+next:
+		array_ptr += len;
+		sb_array_offset += len;
+		cur_offset += len;
+
+	}
+	free_extent_buffer(sb);
+	return 0;
+}
+
+static int search_for_missing_system_chunks(struct btrfs_fs_info *fs_info)
+{
+	struct list_head *dev_list = &fs_info->fs_devices->devices;
+	struct btrfs_device *device;
+	struct btrfs_super_block disk_super;
+	int ret;
+
+	list_for_each_entry(device, dev_list, dev_list) {
+		ret = btrfs_read_dev_super(device->fd, &disk_super,
+					   BTRFS_SUPER_INFO_OFFSET, 0);
+		if (ret) {
+			error("Couldn't read disk super %d", ret);
+			return ret;
+		}
+		ret = read_sys_array(fs_info, &disk_super);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 static int search_for_missing_chunks(struct btrfs_fs_info *fs_info)
 {
 	u64 chunk_offset = 0, chunk_size = 0, offset = 0;
 	u32 nodesize = btrfs_super_nodesize(fs_info->super_copy);
 	int ret;
+
+	ret = search_for_missing_system_chunks(fs_info);
+	if (ret)
+		return ret;
 
 	while (1) {
 		ret = btrfs_next_bg_system(fs_info, &chunk_offset, &chunk_size);
