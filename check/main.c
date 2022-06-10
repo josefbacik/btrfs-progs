@@ -8548,6 +8548,33 @@ int check_chunks(struct cache_tree *chunk_cache,
 				dext_rec->objectid,
 				dext_rec->offset,
 				dext_rec->length);
+		if (repair) {
+			struct btrfs_trans_handle *trans;
+			struct btrfs_key key = {
+				.objectid = dext_rec->objectid,
+				.type = dext_rec->type,
+				.offset = dext_rec->offset,
+			};
+
+			printf("deleting dev extent\n");
+			trans = btrfs_start_transaction(gfs_info->dev_root, 0);
+			if (IS_ERR(trans)) {
+				error("Couldn't start transaction");
+				return PTR_ERR(trans);
+			}
+
+			ret = btrfs_delete_item(trans, gfs_info->dev_root, &key);
+			if (ret) {
+				error("Couldn't delete dev extent %d", ret);
+				return ret;
+			}
+
+			ret = btrfs_commit_transaction(trans, gfs_info->dev_root);
+			if (ret) {
+				error("Commit transaction failed %d", ret);
+				return ret;
+			}
+		}
 		if (!ret)
 			ret = 1;
 	}
