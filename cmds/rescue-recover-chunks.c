@@ -488,8 +488,11 @@ static int setup_free_space(struct btrfs_fs_info *fs_info)
 					   chunk_offset, chunk_size);
 		if (IS_ERR(bg)) {
 			ret = PTR_ERR(bg);
-			error("couldn't add block group %d", ret);
-			break;
+			if (ret != -EEXIST) {
+				error("couldn't add block group %d", ret);
+				break;
+			}
+			ret = 0;
 		}
 
 		set_extent_dirty(&fs_info->free_space_cache,
