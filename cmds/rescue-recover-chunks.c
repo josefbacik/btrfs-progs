@@ -492,6 +492,7 @@ static int setup_free_space(struct btrfs_fs_info *fs_info)
 				error("couldn't add block group %d", ret);
 				break;
 			}
+			bg = btrfs_lookup_block_group(fs_info, chunk_offset);
 			ret = 0;
 		}
 
