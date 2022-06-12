@@ -2809,12 +2809,16 @@ btrfs_add_block_group(struct btrfs_fs_info *fs_info, u64 bytes_used, u64 type,
 	struct btrfs_block_group *cache;
 
 	cache = kzalloc(sizeof(*cache), GFP_NOFS);
-	BUG_ON(!cache);
+	if (!cache)
+		return ERR_PTR(-ENOMEM);
 	cache->start = chunk_offset;
 	cache->length = size;
 
 	ret = btrfs_load_block_group_zone_info(fs_info, cache);
-	BUG_ON(ret);
+	if (ret) {
+		kfree(cache);
+		return ERR_PTR(ret);
+	}
 
 	cache->used = bytes_used;
 	cache->flags = type;
@@ -2823,10 +2827,18 @@ btrfs_add_block_group(struct btrfs_fs_info *fs_info, u64 bytes_used, u64 type,
 	exclude_super_stripes(fs_info, cache);
 	ret = update_space_info(fs_info, cache->flags, size, bytes_used,
 				&cache->space_info);
-	BUG_ON(ret);
+	if (ret) {
+		kfree(cache);
+		return ERR_PTR(ret);
+	}
+
 
 	ret = btrfs_add_block_group_cache(fs_info, cache);
-	BUG_ON(ret);
+	if (ret) {
+		kfree(cache);
+		return ERR_PTR(ret);
+	}
+
 	set_avail_alloc_bits(fs_info, type);
 
 	return cache;
