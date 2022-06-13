@@ -237,8 +237,15 @@ static int record_csums_eb(struct extent_buffer *eb, u64 *processed)
 
 		if (key.type == BTRFS_INODE_ITEM_KEY) {
 			struct btrfs_inode_item *ii;
+			u32 ii_size;
 
 			ii = btrfs_item_ptr(eb, i, struct btrfs_inode_item);
+			ii_size = btrfs_item_size_nr(eb, i);
+			if (ii_size < sizeof(struct btrfs_inode_item)) {
+				fprintf(stderr, "wtf, bad inode item with size of %u\n",
+					ii_size);
+				return -EINVAL;
+			}
 			if (btrfs_inode_flags(eb, ii) & BTRFS_INODE_NODATASUM)
 				skip_ino = key.objectid;
 			continue;
