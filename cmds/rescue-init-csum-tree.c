@@ -225,6 +225,7 @@ static int record_csums_eb(struct extent_buffer *eb, u64 *processed)
 			free_extent_buffer_nocache(tmp);
 			if (ret)
 				return ret;
+			continue;
 		}
 
 		btrfs_item_key_to_cpu(eb, &key, i);
