@@ -38,10 +38,10 @@ test_missing()
 	run_check $SUDO_HELPER umount "$TEST_MNT"
 
 	# now wipe the device
-	run_check wipefs -fa "$bad_dev"
+	run_check $SUDO_HELPER wipefs -fa "$bad_dev"
 
 	# we don't care about the image but btrfs-image must not fail
-	run_check "$TOP/btrfs-image" "$good_dev" /dev/null
+	run_check $SUDO_HELPER "$TOP/btrfs-image" "$good_dev" /dev/null
 }
 
 # Test with either device missing, so we're ensured to hit missing device
