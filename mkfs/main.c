@@ -849,7 +849,6 @@ static int create_uuid_tree(struct btrfs_trans_handle *trans)
 		goto out;
 	}
 
-	add_root_to_dirty_list(root);
 	fs_info->uuid_root = root;
 	ret = btrfs_uuid_tree_add(trans, fs_info->fs_root->root_item.uuid,
 				  BTRFS_UUID_KEY_SUBVOL,
@@ -1109,7 +1108,6 @@ static int setup_raid_stripe_tree_root(struct btrfs_fs_info *fs_info)
 		return ret;
 	}
 	fs_info->stripe_root = stripe_root;
-	add_root_to_dirty_list(stripe_root);
 
 	ret = btrfs_commit_transaction(trans, fs_info->tree_root);
 	if (ret)
