@@ -587,12 +587,21 @@ static int find_and_setup_log_root(struct btrfs_root *tree_root,
 	return 0;
 }
 
+static void free_root_extent_buffers(struct btrfs_root *root)
+{
+	if (root) {
+		if (root->node)
+			free_extent_buffer(root->node);
+		if (root->commit_root)
+			free_extent_buffer(root->commit_root);
+		root->node = NULL;
+		root->commit_root = NULL;
+	}
+}
+
 int btrfs_free_fs_root(struct btrfs_root *root)
 {
-	if (root->node)
-		free_extent_buffer(root->node);
-	if (root->commit_root)
-		free_extent_buffer(root->commit_root);
+	free_root_extent_buffers(root);
 	kfree(root);
 	return 0;
 }
@@ -1338,34 +1347,21 @@ static void release_global_roots(struct btrfs_fs_info *fs_info)
 
 	for (n = rb_first(&fs_info->global_roots_tree); n; n = rb_next(n)) {
 		root = rb_entry(n, struct btrfs_root, rb_node);
-		if (root->node)
-			free_extent_buffer(root->node);
-		if (root->commit_root)
-			free_extent_buffer(root->commit_root);
-		root->node = NULL;
-		root->commit_root = NULL;
+		free_root_extent_buffers(root);
 	}
 }
 
 void btrfs_release_all_roots(struct btrfs_fs_info *fs_info)
 {
 	release_global_roots(fs_info);
-	if (fs_info->block_group_root)
-		free_extent_buffer(fs_info->block_group_root->node);
-	if (fs_info->quota_root)
-		free_extent_buffer(fs_info->quota_root->node);
-	if (fs_info->dev_root)
-		free_extent_buffer(fs_info->dev_root->node);
-	if (fs_info->tree_root)
-		free_extent_buffer(fs_info->tree_root->node);
-	if (fs_info->log_root_tree)
-		free_extent_buffer(fs_info->log_root_tree->node);
-	if (fs_info->chunk_root)
-		free_extent_buffer(fs_info->chunk_root->node);
-	if (fs_info->uuid_root)
-		free_extent_buffer(fs_info->uuid_root->node);
-	if (fs_info->stripe_root)
-		free_extent_buffer(fs_info->stripe_root->node);
+	free_root_extent_buffers(fs_info->block_group_root);
+	free_root_extent_buffers(fs_info->quota_root);
+	free_root_extent_buffers(fs_info->dev_root);
+	free_root_extent_buffers(fs_info->tree_root);
+	free_root_extent_buffers(fs_info->log_root_tree);
+	free_root_extent_buffers(fs_info->chunk_root);
+	free_root_extent_buffers(fs_info->uuid_root);
+	free_root_extent_buffers(fs_info->stripe_root);
 }
 
 static void free_map_lookup(struct cache_extent *ce)
@@ -2349,8 +2345,7 @@ int btrfs_delete_and_free_root(struct btrfs_trans_handle *trans,
 		return ret;
 	if (is_global_root(root))
 		rb_erase(&root->rb_node, &fs_info->global_roots_tree);
-	free_extent_buffer(root->node);
-	free_extent_buffer(root->commit_root);
+	free_root_extent_buffers(root);
 	kfree(root);
 	return 0;
 }
