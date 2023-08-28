@@ -251,6 +251,40 @@ bool __cold abort_should_print_stack(int errno)
 	return true;
 }
 
+/*
+ * safely gets a reference on the root node of a tree.  A lock
+ * is not taken, so a concurrent writer may put a different node
+ * at the root of the tree.  See btrfs_lock_root_node for the
+ * looping required.
+ *
+ * The extent buffer returned by this has a reference taken, so
+ * it won't disappear.  It may stop being the root of the tree
+ * at any time because there are no locks held.
+ */
+struct extent_buffer *btrfs_root_node(struct btrfs_root *root)
+{
+	struct extent_buffer *eb;
+
+	while (1) {
+		rcu_read_lock();
+		eb = rcu_dereference(root->node);
+
+		/*
+		 * RCU really hurts here, we could free up the root node because
+		 * it was COWed but we may not get the new root node yet so do
+		 * the inc_not_zero dance and if it doesn't work then
+		 * synchronize_rcu and try again.
+		 */
+		if (atomic_inc_not_zero(&eb->refs)) {
+			rcu_read_unlock();
+			break;
+		}
+		rcu_read_unlock();
+		synchronize_rcu();
+	}
+	return eb;
+}
+
 static void add_root_to_dirty_list(struct btrfs_root *root)
 {
 	if (test_bit(BTRFS_ROOT_TRACK_DIRTY, &root->state) &&
