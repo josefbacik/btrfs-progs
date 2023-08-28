@@ -941,32 +941,64 @@ static int noinline check_block(struct btrfs_fs_info *fs_info,
 }
 
 /*
- * search for key in the extent_buffer.  The items start at offset p,
- * and they are item_size apart.  There are 'max' items in p.
+ * Search for a key in the given extent_buffer.
  *
- * the slot in the array is returned via slot, and it points to
- * the place where you would insert key if it is not found in
- * the array.
+ * The lower boundary for the search is specified by the slot number @first_slot.
+ * Use a value of 0 to search over the whole extent buffer. Works for both
+ * leaves and nodes.
  *
- * slot may point to max if the key is bigger than all of the keys
+ * The slot in the extent buffer is returned via @slot. If the key exists in the
+ * extent buffer, then @slot will point to the slot where the key is, otherwise
+ * it points to the slot where you would insert the key.
+ *
+ * Slot may point to the total number of items (i.e. one position beyond the last
+ * key) if the key is bigger than the last key in the extent buffer.
+ *
+ * MODIFIED: Removed the inside of a page optimization.
  */
-static int generic_bin_search(struct extent_buffer *eb, unsigned long p,
-			      int item_size, const struct btrfs_key *key,
-			      int max, int *slot)
+int btrfs_bin_search(struct extent_buffer *eb, int first_slot,
+		     const struct btrfs_key *key, int *slot)
 {
-	int low = 0;
-	int high = max;
-	int mid;
+	unsigned long p;
+	int item_size;
+	/*
+	 * Use unsigned types for the low and high slots, so that we get a more
+	 * efficient division in the search loop below.
+	 */
+	u32 low = first_slot;
+	u32 high = btrfs_header_nritems(eb);
 	int ret;
-	unsigned long offset;
-	struct btrfs_disk_key *tmp;
+	const int key_size = sizeof(struct btrfs_disk_key);
 
-	while(low < high) {
+	if (unlikely(low > high)) {
+		btrfs_err(eb->fs_info,
+		 "%s: low (%u) > high (%u) eb %llu owner %llu level %d",
+			  __func__, low, high, eb->start,
+			  btrfs_header_owner(eb), btrfs_header_level(eb));
+		return -EINVAL;
+	}
+
+	if (btrfs_header_level(eb) == 0) {
+		p = offsetof(struct btrfs_leaf, items);
+		item_size = sizeof(struct btrfs_item);
+	} else {
+		p = offsetof(struct btrfs_node, ptrs);
+		item_size = sizeof(struct btrfs_key_ptr);
+	}
+
+	while (low < high) {
+		unsigned long offset;
+		struct btrfs_disk_key *tmp;
+		struct btrfs_disk_key unaligned;
+		int mid;
+
 		mid = (low + high) / 2;
 		offset = p + mid * item_size;
 
-		tmp = (struct btrfs_disk_key *)(eb->data + offset);
-		ret = btrfs_comp_keys(tmp, key);
+		read_extent_buffer(eb, &unaligned, offset, key_size);
+		tmp = &unaligned;
+
+		ret = comp_keys(tmp, key);
 
 		if (ret < 0)
 			low = mid + 1;
@@ -979,27 +1011,6 @@ static int generic_bin_search(struct extent_buffer *eb, unsigned long p,
 	}
 	*slot = low;
 	return 1;
-}
-
-/*
- * simple bin_search frontend that does the right thing for
- * leaves vs nodes
- */
-int btrfs_bin_search(struct extent_buffer *eb, int first_slot,
-		     const struct btrfs_key *key, int *slot)
-{
-	if (btrfs_header_level(eb) == 0)
-		return generic_bin_search(eb,
-					  offsetof(struct btrfs_leaf, items),
-					  sizeof(struct btrfs_item),
-					  key, btrfs_header_nritems(eb),
-					  slot);
-	else
-		return generic_bin_search(eb,
-					  offsetof(struct btrfs_node, ptrs),
-					  sizeof(struct btrfs_key_ptr),
-					  key, btrfs_header_nritems(eb),
-					  slot);
 }
 
 struct extent_buffer *btrfs_read_node_slot(struct extent_buffer *parent,
