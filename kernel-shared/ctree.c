@@ -158,12 +158,19 @@ static inline void copy_leaf_items(const struct extent_buffer *dst,
 			      nr_items * sizeof(struct btrfs_item));
 }
 
-int btrfs_super_csum_size(const struct btrfs_super_block *sb)
+/* This exists for btrfs-progs usages. */
+u16 btrfs_csum_type_size(u16 type)
 {
-	const u16 csum_type = btrfs_super_csum_type(sb);
+	return btrfs_csums[type].size;
+}
 
-	/* csum type is validated at mount time */
-	return btrfs_csums[csum_type].size;
+int btrfs_super_csum_size(const struct btrfs_super_block *s)
+{
+	u16 t = btrfs_super_csum_type(s);
+	/*
+	 * csum type is validated at mount time.
+	 */
+	return btrfs_csum_type_size(t);
 }
 
 const char *btrfs_super_csum_name(u16 csum_type)
@@ -187,11 +194,6 @@ const char *btrfs_super_csum_driver(u16 csum_type)
 size_t __attribute_const__ btrfs_get_num_csums(void)
 {
 	return ARRAY_SIZE(btrfs_csums);
-}
-
-u16 btrfs_csum_type_size(u16 csum_type)
-{
-	return btrfs_csums[csum_type].size;
 }
 
 struct btrfs_path *btrfs_alloc_path(void)
