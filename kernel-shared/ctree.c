@@ -1566,6 +1566,63 @@ static noinline void reada_for_balance(struct btrfs_path *path, int level)
 		btrfs_readahead_node_child(parent, slot + 1);
 }
 
+/*
+ * when we walk down the tree, it is usually safe to unlock the higher layers
+ * in the tree.  The exceptions are when our path goes through slot 0, because
+ * operations on the tree might require changing key pointers higher up in the
+ * tree.
+ *
+ * callers might also have set path->keep_locks, which tells this code to keep
+ * the lock if the path points to the last slot in the block.  This is part of
+ * walking through the tree, and selecting the next slot in the higher block.
+ *
+ * lowest_unlock sets the lowest level in the tree we're allowed to unlock.  so
+ * if lowest_unlock is 1, level 0 won't be unlocked
+ */
+static noinline void unlock_up(struct btrfs_path *path, int level,
+			       int lowest_unlock, int min_write_lock_level,
+			       int *write_lock_level)
+{
+	int i;
+	int skip_level = level;
+	bool check_skip = true;
+
+	for (i = level; i < BTRFS_MAX_LEVEL; i++) {
+		if (!path->nodes[i])
+			break;
+		if (!path->locks[i])
+			break;
+
+		if (check_skip) {
+			if (path->slots[i] == 0) {
+				skip_level = i + 1;
+				continue;
+			}
+
+			if (path->keep_locks) {
+				u32 nritems;
+
+				nritems = btrfs_header_nritems(path->nodes[i]);
+				if (nritems < 1 || path->slots[i] >= nritems - 1) {
+					skip_level = i + 1;
+					continue;
+				}
+			}
+		}
+
+		if (i >= lowest_unlock && i > skip_level) {
+			check_skip = false;
+			btrfs_tree_unlock_rw(path->nodes[i], path->locks[i]);
+			path->locks[i] = 0;
+			if (write_lock_level &&
+			    i > min_write_lock_level &&
+			    i <= *write_lock_level) {
+				*write_lock_level = i - 1;
+			}
+		}
+	}
+}
+
 int btrfs_find_item(struct btrfs_root *fs_root, struct btrfs_path *found_path,
 		u64 iobjectid, u64 ioff, u8 key_type,
 		struct btrfs_key *found_key)
