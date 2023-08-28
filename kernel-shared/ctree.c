@@ -2107,110 +2107,275 @@ static int search_leaf(struct btrfs_trans_handle *trans,
 }
 
 /*
- * look for key in the tree.  path is filled in with nodes along the way
- * if key is found, we return zero and you can find the item in the leaf
- * level of the path (level 0)
+ * btrfs_search_slot - look for a key in a tree and perform necessary
+ * modifications to preserve tree invariants.
  *
- * If the key isn't found, the path points to the slot where it should
- * be inserted, and 1 is returned.  If there are other errors during the
- * search a negative error number is returned.
+ * @trans:	Handle of transaction, used when modifying the tree
+ * @p:		Holds all btree nodes along the search path
+ * @root:	The root node of the tree
+ * @key:	The key we are looking for
+ * @ins_len:	Indicates purpose of search:
+ *              >0  for inserts it's size of item inserted (*)
+ *              <0  for deletions
+ *               0  for plain searches, not modifying the tree
  *
- * if ins_len > 0, nodes and leaves will be split as we walk down the
- * tree.  if ins_len < 0, nodes will be merged as we walk down the tree (if
- * possible)
+ *              (*) If size of item inserted doesn't include
+ *              sizeof(struct btrfs_item), then p->search_for_extension must
+ *              be set.
+ * @cow:	boolean should CoW operations be performed. Must always be 1
+ *		when modifying the tree.
+ *
+ * If @ins_len > 0, nodes and leaves will be split as we walk down the tree.
+ * If @ins_len < 0, nodes will be merged as we walk down the tree (if possible)
+ *
+ * If @key is found, 0 is returned and you can find the item in the leaf level
+ * of the path (level 0)
+ *
+ * If @key isn't found, 1 is returned and the leaf level of the path (level 0)
+ * points to the slot where it should be inserted
+ *
+ * If an error is encountered while searching the tree a negative error number
+ * is returned
  */
-int btrfs_search_slot(struct btrfs_trans_handle *trans,
-		struct btrfs_root *root, const struct btrfs_key *key,
-		struct btrfs_path *p, int ins_len, int cow)
+int btrfs_search_slot(struct btrfs_trans_handle *trans, struct btrfs_root *root,
+		      const struct btrfs_key *key, struct btrfs_path *p,
+		      int ins_len, int cow)
 {
+	struct btrfs_fs_info *fs_info = root->fs_info;
 	struct extent_buffer *b;
 	int slot;
 	int ret;
+	int err;
 	int level;
-	int should_reada = p->reada;
-	struct btrfs_fs_info *fs_info = root->fs_info;
+	int lowest_unlock = 1;
+	/* everything at write_lock_level or lower must be write locked */
+	int write_lock_level = 0;
 	u8 lowest_level = 0;
+	int min_write_lock_level;
+	int prev_cmp;
+
+	might_sleep();
 
 	lowest_level = p->lowest_level;
 	WARN_ON(lowest_level && ins_len > 0);
 	WARN_ON(p->nodes[0] != NULL);
-again:
-	b = root->node;
-	extent_buffer_get(b);
-	while (b) {
-		level = btrfs_header_level(b);
-		if (cow) {
-			int wret;
-			wret = btrfs_cow_block(trans, root, b,
-					       p->nodes[level + 1],
-					       p->slots[level + 1],
-					       &b, BTRFS_NESTING_NORMAL);
-			if (wret) {
-				free_extent_buffer(b);
-				return wret;
-			}
-		}
-		BUG_ON(!cow && ins_len);
-		if (level != btrfs_header_level(b))
-			WARN_ON(1);
-		level = btrfs_header_level(b);
-		p->nodes[level] = b;
-		ret = check_block(fs_info, p, level);
-		if (ret)
-			return -1;
-		ret = btrfs_bin_search(b, 0, key, &slot);
-		if (level != 0) {
-			if (ret && slot > 0)
-				slot -= 1;
-			p->slots[level] = slot;
-			if ((p->search_for_split || ins_len > 0) &&
-			    btrfs_header_nritems(b) >=
-			    BTRFS_NODEPTRS_PER_BLOCK(fs_info) - 3) {
-				int sret = split_node(trans, root, p, level);
-				BUG_ON(sret > 0);
-				if (sret)
-					return sret;
-				b = p->nodes[level];
-				slot = p->slots[level];
-			} else if (ins_len < 0) {
-				int sret = balance_level(trans, root, p,
-							 level);
-				if (sret)
-					return sret;
-				b = p->nodes[level];
-				if (!b) {
-					btrfs_release_path(p);
-					goto again;
-				}
-				slot = p->slots[level];
-				BUG_ON(btrfs_header_nritems(b) == 1);
-			}
-			/* this is only true while dropping a snapshot */
-			if (level == lowest_level)
-				break;
+	BUG_ON(!cow && ins_len);
 
-			if (should_reada)
-				reada_for_search(fs_info, p, level, slot,
-						 key->objectid);
+	/*
+	 * For now only allow nowait for read only operations.  There's no
+	 * strict reason why we can't, we just only need it for reads so it's
+	 * only implemented for reads.
+	 */
+	ASSERT(!p->nowait || !cow);
 
-			b = btrfs_read_node_slot(b, slot);
-			if (!extent_buffer_uptodate(b))
-				return -EIO;
+	if (ins_len < 0) {
+		lowest_unlock = 2;
+
+		/* when we are removing items, we might have to go up to level
+		 * two as we update tree pointers  Make sure we keep write
+		 * for those levels as well
+		 */
+		write_lock_level = 2;
+	} else if (ins_len > 0) {
+		/*
+		 * for inserting items, make sure we have a write lock on
+		 * level 1 so we can update keys
+		 */
+		write_lock_level = 1;
+	}
+
+	if (!cow)
+		write_lock_level = -1;
+
+	if (cow && (p->keep_locks || p->lowest_level))
+		write_lock_level = BTRFS_MAX_LEVEL;
+
+	min_write_lock_level = write_lock_level;
+
+	if (p->need_commit_sem) {
+		ASSERT(p->search_commit_root);
+		if (p->nowait) {
+			if (!down_read_trylock(&fs_info->commit_root_sem))
+				return -EAGAIN;
 		} else {
-			p->slots[level] = slot;
-			if (ins_len > 0 &&
-			    ins_len > btrfs_leaf_free_space(b)) {
-				int sret = split_leaf(trans, root, key,
-						      p, ins_len, ret == 0);
-				BUG_ON(sret > 0);
-				if (sret)
-					return sret;
-			}
-			return ret;
+			down_read(&fs_info->commit_root_sem);
 		}
 	}
-	return 1;
+
+again:
+	prev_cmp = -1;
+	b = btrfs_search_slot_get_root(root, p, write_lock_level);
+	if (IS_ERR(b)) {
+		ret = PTR_ERR(b);
+		goto done;
+	}
+
+	while (b) {
+		int dec = 0;
+
+		level = btrfs_header_level(b);
+
+		if (cow) {
+			bool last_level = (level == (BTRFS_MAX_LEVEL - 1));
+
+			/*
+			 * if we don't really need to cow this block
+			 * then we don't want to set the path blocking,
+			 * so we test it here
+			 */
+			if (!should_cow_block(trans, root, b))
+				goto cow_done;
+
+			/*
+			 * must have write locks on this node and the
+			 * parent
+			 */
+			if (level > write_lock_level ||
+			    (level + 1 > write_lock_level &&
+			    level + 1 < BTRFS_MAX_LEVEL &&
+			    p->nodes[level + 1])) {
+				write_lock_level = level + 1;
+				btrfs_release_path(p);
+				goto again;
+			}
+
+			if (last_level)
+				err = btrfs_cow_block(trans, root, b, NULL, 0,
+						      &b,
+						      BTRFS_NESTING_COW);
+			else
+				err = btrfs_cow_block(trans, root, b,
+						      p->nodes[level + 1],
+						      p->slots[level + 1], &b,
+						      BTRFS_NESTING_COW);
+			if (err) {
+				ret = err;
+				goto done;
+			}
+		}
+cow_done:
+		p->nodes[level] = b;
+
+		/*
+		 * we have a lock on b and as long as we aren't changing
+		 * the tree, there is no way to for the items in b to change.
+		 * It is safe to drop the lock on our parent before we
+		 * go through the expensive btree search on b.
+		 *
+		 * If we're inserting or deleting (ins_len != 0), then we might
+		 * be changing slot zero, which may require changing the parent.
+		 * So, we can't drop the lock until after we know which slot
+		 * we're operating on.
+		 */
+		if (!ins_len && !p->keep_locks) {
+			int u = level + 1;
+
+			if (u < BTRFS_MAX_LEVEL && p->locks[u]) {
+				btrfs_tree_unlock_rw(p->nodes[u], p->locks[u]);
+				p->locks[u] = 0;
+			}
+		}
+
+		if (level == 0) {
+			if (ins_len > 0)
+				ASSERT(write_lock_level >= 1);
+
+			ret = search_leaf(trans, root, key, p, ins_len, prev_cmp);
+			if (!p->search_for_split)
+				unlock_up(p, level, lowest_unlock,
+					  min_write_lock_level, NULL);
+			goto done;
+		}
+
+		ret = search_for_key_slot(b, 0, key, prev_cmp, &slot);
+		if (ret < 0)
+			goto done;
+		prev_cmp = ret;
+
+		if (ret && slot > 0) {
+			dec = 1;
+			slot--;
+		}
+		p->slots[level] = slot;
+		err = setup_nodes_for_search(trans, root, p, b, level, ins_len,
+					     &write_lock_level);
+		if (err == -EAGAIN)
+			goto again;
+		if (err) {
+			ret = err;
+			goto done;
+		}
+		b = p->nodes[level];
+		slot = p->slots[level];
+
+		/*
+		 * Slot 0 is special, if we change the key we have to update
+		 * the parent pointer which means we must have a write lock on
+		 * the parent
+		 */
+		if (slot == 0 && ins_len && write_lock_level < level + 1) {
+			write_lock_level = level + 1;
+			btrfs_release_path(p);
+			goto again;
+		}
+
+		unlock_up(p, level, lowest_unlock, min_write_lock_level,
+			  &write_lock_level);
+
+		if (level == lowest_level) {
+			if (dec)
+				p->slots[level]++;
+			goto done;
+		}
+
+		err = read_block_for_search(root, p, &b, level, slot, key);
+		if (err == -EAGAIN)
+			goto again;
+		if (err) {
+			ret = err;
+			goto done;
+		}
+
+		if (!p->skip_locking) {
+			level = btrfs_header_level(b);
+
+			btrfs_maybe_reset_lockdep_class(root, b);
+
+			if (level <= write_lock_level) {
+				btrfs_tree_lock(b);
+				p->locks[level] = BTRFS_WRITE_LOCK;
+			} else {
+				if (p->nowait) {
+					if (!btrfs_try_tree_read_lock(b)) {
+						free_extent_buffer(b);
+						ret = -EAGAIN;
+						goto done;
+					}
+				} else {
+					btrfs_tree_read_lock(b);
+				}
+				p->locks[level] = BTRFS_READ_LOCK;
+			}
+			p->nodes[level] = b;
+		}
+	}
+	ret = 1;
+done:
+	if (ret < 0 && !p->skip_release_on_error)
+		btrfs_release_path(p);
+
+	if (p->need_commit_sem) {
+		int ret2;
+
+		ret2 = finish_need_commit_sem_search(p);
+		up_read(&fs_info->commit_root_sem);
+		if (ret2)
+			ret = ret2;
+	}
+
+	return ret;
 }
+ALLOW_ERROR_INJECTION(btrfs_search_slot, ERRNO);
 
 /*
  * Helper to use instead of search slot if no exact match is needed but
