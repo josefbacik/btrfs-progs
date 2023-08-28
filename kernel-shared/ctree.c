@@ -285,13 +285,30 @@ struct extent_buffer *btrfs_root_node(struct btrfs_root *root)
 	return eb;
 }
 
+/*
+ * Cowonly root (not-shareable trees, everything not subvolume or reloc roots),
+ * just get put onto a simple dirty list.  Transaction walks this list to make
+ * sure they get properly updated on disk.
+ */
 static void add_root_to_dirty_list(struct btrfs_root *root)
 {
-	if (test_bit(BTRFS_ROOT_TRACK_DIRTY, &root->state) &&
-	    list_empty(&root->dirty_list)) {
-		list_add(&root->dirty_list,
-			 &root->fs_info->dirty_cowonly_roots);
+	struct btrfs_fs_info *fs_info = root->fs_info;
+
+	if (test_bit(BTRFS_ROOT_DIRTY, &root->state) ||
+	    !test_bit(BTRFS_ROOT_TRACK_DIRTY, &root->state))
+		return;
+
+	spin_lock(&fs_info->trans_lock);
+	if (!test_and_set_bit(BTRFS_ROOT_DIRTY, &root->state)) {
+		/* Want the extent tree to be the last on the list */
+		if (root->root_key.objectid == BTRFS_EXTENT_TREE_OBJECTID)
+			list_move_tail(&root->dirty_list,
+				       &fs_info->dirty_cowonly_roots);
+		else
+			list_move(&root->dirty_list,
+				  &fs_info->dirty_cowonly_roots);
 	}
+	spin_unlock(&fs_info->trans_lock);
 }
 
 static void root_add_used(struct btrfs_root *root, u32 size)
