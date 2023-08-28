@@ -1623,6 +1623,131 @@ static noinline void unlock_up(struct btrfs_path *path, int level,
 	}
 }
 
+/*
+ * Helper function for btrfs_search_slot() and other functions that do a search
+ * on a btree. The goal is to find a tree block in the cache (the radix tree at
+ * fs_info->buffer_radix), but if we can't find it, or it's not up to date, read
+ * its pages from disk.
+ *
+ * Returns -EAGAIN, with the path unlocked, if the caller needs to repeat the
+ * whole btree search, starting again from the current root node.
+ */
+static int
+read_block_for_search(struct btrfs_root *root, struct btrfs_path *p,
+		      struct extent_buffer **eb_ret, int level, int slot,
+		      const struct btrfs_key *key)
+{
+	struct btrfs_fs_info *fs_info = root->fs_info;
+	struct btrfs_tree_parent_check check = { 0 };
+	u64 blocknr;
+	u64 gen;
+	struct extent_buffer *tmp;
+	int ret;
+	int parent_level;
+	bool unlock_up;
+
+	unlock_up = ((level + 1 < BTRFS_MAX_LEVEL) && p->locks[level + 1]);
+	blocknr = btrfs_node_blockptr(*eb_ret, slot);
+	gen = btrfs_node_ptr_generation(*eb_ret, slot);
+	parent_level = btrfs_header_level(*eb_ret);
+	btrfs_node_key_to_cpu(*eb_ret, &check.first_key, slot);
+	check.has_first_key = true;
+	check.level = parent_level - 1;
+	check.transid = gen;
+	check.owner_root = root->root_key.objectid;
+
+	/*
+	 * If we need to read an extent buffer from disk and we are holding locks
+	 * on upper level nodes, we unlock all the upper nodes before reading the
+	 * extent buffer, and then return -EAGAIN to the caller as it needs to
+	 * restart the search. We don't release the lock on the current level
+	 * because we need to walk this node to figure out which blocks to read.
+	 */
+	tmp = find_extent_buffer(fs_info, blocknr);
+	if (tmp) {
+		if (p->reada == READA_FORWARD_ALWAYS)
+			reada_for_search(fs_info, p, level, slot, key->objectid);
+
+		/* first we do an atomic uptodate check */
+		if (btrfs_buffer_uptodate(tmp, gen, 1) > 0) {
+			/*
+			 * Do extra check for first_key, eb can be stale due to
+			 * being cached, read from scrub, or have multiple
+			 * parents (shared tree blocks).
+			 */
+			if (btrfs_verify_level_key(tmp,
+					parent_level - 1, &check.first_key, gen)) {
+				free_extent_buffer(tmp);
+				return -EUCLEAN;
+			}
+			*eb_ret = tmp;
+			return 0;
+		}
+
+		if (p->nowait) {
+			free_extent_buffer(tmp);
+			return -EAGAIN;
+		}
+
+		if (unlock_up)
+			btrfs_unlock_up_safe(p, level + 1);
+
+		/* now we're allowed to do a blocking uptodate check */
+		ret = btrfs_read_extent_buffer(tmp, &check);
+		if (ret) {
+			free_extent_buffer(tmp);
+			btrfs_release_path(p);
+			return -EIO;
+		}
+		if (btrfs_check_eb_owner(tmp, root->root_key.objectid)) {
+			free_extent_buffer(tmp);
+			btrfs_release_path(p);
+			return -EUCLEAN;
+		}
+
+		if (unlock_up)
+			ret = -EAGAIN;
+
+		goto out;
+	} else if (p->nowait) {
+		return -EAGAIN;
+	}
+
+	if (unlock_up) {
+		btrfs_unlock_up_safe(p, level + 1);
+		ret = -EAGAIN;
+	} else {
+		ret = 0;
+	}
+
+	if (p->reada != READA_NONE)
+		reada_for_search(fs_info, p, level, slot, key->objectid);
+
+	tmp = read_tree_block(fs_info, blocknr, &check);
+	if (IS_ERR(tmp)) {
+		btrfs_release_path(p);
+		return PTR_ERR(tmp);
+	}
+	/*
+	 * If the read above didn't mark this buffer up to date,
+	 * it will never end up being up to date.  Set ret to EIO now
+	 * and give up so that our caller doesn't loop forever
+	 * on our EAGAINs.
+	 */
+	if (!extent_buffer_uptodate(tmp))
+		ret = -EIO;
+
+out:
+	if (ret == 0) {
+		*eb_ret = tmp;
+	} else {
+		free_extent_buffer(tmp);
+		btrfs_release_path(p);
+	}
+
+	return ret;
+}
+
 int btrfs_find_item(struct btrfs_root *fs_root, struct btrfs_path *found_path,
 		u64 iobjectid, u64 ioff, u8 key_type,
 		struct btrfs_key *found_key)
