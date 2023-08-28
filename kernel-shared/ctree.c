@@ -323,26 +323,25 @@ static void root_sub_used(struct btrfs_root *root, u32 size)
                             btrfs_root_used(&root->root_item) - size);
 }
 
+/*
+ * used by snapshot creation to make a copy of a root for a tree with
+ * a given objectid.  The buffer with the new root node is returned in
+ * cow_ret, and this func returns zero on success or a negative error code.
+ */
 int btrfs_copy_root(struct btrfs_trans_handle *trans,
 		      struct btrfs_root *root,
 		      struct extent_buffer *buf,
 		      struct extent_buffer **cow_ret, u64 new_root_objectid)
 {
+	struct btrfs_fs_info *fs_info = root->fs_info;
 	struct extent_buffer *cow;
 	int ret = 0;
 	int level;
-	struct btrfs_root *new_root;
 	struct btrfs_disk_key disk_key;
-
-	new_root = kmalloc(sizeof(*new_root), GFP_NOFS);
-	if (!new_root)
-		return -ENOMEM;
-
-	memcpy(new_root, root, sizeof(*new_root));
-	new_root->root_key.objectid = new_root_objectid;
+	u64 reloc_src_root = 0;
 
 	WARN_ON(test_bit(BTRFS_ROOT_SHAREABLE, &root->state) &&
-		trans->transid != root->fs_info->running_transaction->transid);
+		trans->transid != fs_info->running_transaction->transid);
 	WARN_ON(test_bit(BTRFS_ROOT_SHAREABLE, &root->state) &&
 		trans->transid != root->last_trans);
 
@@ -352,13 +351,13 @@ int btrfs_copy_root(struct btrfs_trans_handle *trans,
 	else
 		btrfs_node_key(buf, &disk_key, 0);
 
-	cow = btrfs_alloc_tree_block(trans, new_root, 0, new_root_objectid,
-				     &disk_key, level, buf->start, 0, 0,
-				     BTRFS_NESTING_NORMAL);
-	if (IS_ERR(cow)) {
-		kfree(new_root);
+	if (new_root_objectid == BTRFS_TREE_RELOC_OBJECTID)
+		reloc_src_root = btrfs_header_owner(buf);
+	cow = btrfs_alloc_tree_block(trans, root, 0, new_root_objectid,
+				     &disk_key, level, buf->start, 0,
+				     reloc_src_root, BTRFS_NESTING_NEW_ROOT);
+	if (IS_ERR(cow))
 		return PTR_ERR(cow);
-	}
 
 	copy_extent_buffer_full(cow, buf);
 	btrfs_set_header_bytenr(cow, cow->start);
@@ -371,14 +370,19 @@ int btrfs_copy_root(struct btrfs_trans_handle *trans,
 	else
 		btrfs_set_header_owner(cow, new_root_objectid);
 
-	write_extent_buffer_fsid(cow, root->fs_info->fs_devices->metadata_uuid);
+	write_extent_buffer_fsid(cow, fs_info->fs_devices->metadata_uuid);
 
 	WARN_ON(btrfs_header_generation(buf) > trans->transid);
-	ret = btrfs_inc_ref(trans, new_root, cow, 0);
-	kfree(new_root);
-
-	if (ret)
+	if (new_root_objectid == BTRFS_TREE_RELOC_OBJECTID)
+		ret = btrfs_inc_ref(trans, root, cow, 1);
+	else
+		ret = btrfs_inc_ref(trans, root, cow, 0);
+	if (ret) {
+		btrfs_tree_unlock(cow);
+		free_extent_buffer(cow);
+		btrfs_abort_transaction(trans, ret);
 		return ret;
+	}
 
 	btrfs_mark_buffer_dirty(trans, cow);
 	*cow_ret = cow;
