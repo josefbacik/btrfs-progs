@@ -1547,6 +1547,25 @@ static void reada_for_search(struct btrfs_fs_info *fs_info,
 	}
 }
 
+static noinline void reada_for_balance(struct btrfs_path *path, int level)
+{
+	struct extent_buffer *parent;
+	int slot;
+	int nritems;
+
+	parent = path->nodes[level + 1];
+	if (!parent)
+		return;
+
+	nritems = btrfs_header_nritems(parent);
+	slot = path->slots[level + 1];
+
+	if (slot > 0)
+		btrfs_readahead_node_child(parent, slot - 1);
+	if (slot + 1 < nritems)
+		btrfs_readahead_node_child(parent, slot + 1);
+}
+
 int btrfs_find_item(struct btrfs_root *fs_root, struct btrfs_path *found_path,
 		u64 iobjectid, u64 ioff, u8 key_type,
 		struct btrfs_key *found_key)
