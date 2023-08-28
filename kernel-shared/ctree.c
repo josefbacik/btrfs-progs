@@ -29,6 +29,13 @@
 #include "common/internal.h"
 #include "common/messages.h"
 
+/* MODIFIED: use this instead of calling btrfs_ctree_init. */
+static struct kmem_cache btrfs_path_cache_struct = {
+	.size = sizeof(struct btrfs_path),
+};
+
+static struct kmem_cache *btrfs_path_cachep = &btrfs_path_cache_struct;
+
 static int split_node(struct btrfs_trans_handle *trans, struct btrfs_root
 		      *root, struct btrfs_path *path, int level);
 static int split_leaf(struct btrfs_trans_handle *trans, struct btrfs_root *root,
@@ -191,7 +198,7 @@ struct btrfs_path *btrfs_alloc_path(void)
 {
 	might_sleep();
 
-	return kzalloc(sizeof(struct btrfs_path), GFP_NOFS);
+	return kmem_cache_zalloc(btrfs_path_cachep, GFP_NOFS);
 }
 
 /* this also releases the path */
@@ -200,7 +207,7 @@ void btrfs_free_path(struct btrfs_path *p)
 	if (!p)
 		return;
 	btrfs_release_path(p);
-	kfree(p);
+	kmem_cache_free(btrfs_path_cachep, p);
 }
 
 /*
