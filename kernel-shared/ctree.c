@@ -1341,18 +1341,23 @@ static noinline int push_nodes_for_insert(struct btrfs_trans_handle *trans,
 	if (!parent)
 		return 1;
 
-	left = btrfs_read_node_slot(parent, pslot - 1);
-
 	/* first, try to make some room in the middle buffer */
-	if (extent_buffer_uptodate(left)) {
+	if (pslot) {
 		u32 left_nr;
+
+		left = btrfs_read_node_slot(parent, pslot - 1);
+		if (IS_ERR(left))
+			return PTR_ERR(left);
+
+		__btrfs_tree_lock(left, BTRFS_NESTING_LEFT);
+
 		left_nr = btrfs_header_nritems(left);
 		if (left_nr >= BTRFS_NODEPTRS_PER_BLOCK(fs_info) - 1) {
 			wret = 1;
 		} else {
 			ret = btrfs_cow_block(trans, root, left, parent,
 					      pslot - 1, &left,
-					      BTRFS_NESTING_NORMAL);
+					      BTRFS_NESTING_LEFT_COW);
 			if (ret)
 				wret = 1;
 			else {
@@ -1365,37 +1370,54 @@ static noinline int push_nodes_for_insert(struct btrfs_trans_handle *trans,
 			struct btrfs_disk_key disk_key;
 			orig_slot += left_nr;
 			btrfs_node_key(mid, &disk_key, 0);
+			ret = btrfs_tree_mod_log_insert_key(parent, pslot,
+					BTRFS_MOD_LOG_KEY_REPLACE);
+			if (ret < 0) {
+				btrfs_tree_unlock(left);
+				free_extent_buffer(left);
+				btrfs_abort_transaction(trans, ret);
+				return ret;
+			}
 			btrfs_set_node_key(parent, &disk_key, pslot);
 			btrfs_mark_buffer_dirty(trans, parent);
 			if (btrfs_header_nritems(left) > orig_slot) {
 				path->nodes[level] = left;
 				path->slots[level + 1] -= 1;
 				path->slots[level] = orig_slot;
+				btrfs_tree_unlock(mid);
 				free_extent_buffer(mid);
 			} else {
 				orig_slot -=
 					btrfs_header_nritems(left);
 				path->slots[level] = orig_slot;
+				btrfs_tree_unlock(left);
 				free_extent_buffer(left);
 			}
 			return 0;
 		}
+		btrfs_tree_unlock(left);
 		free_extent_buffer(left);
 	}
-	right= btrfs_read_node_slot(parent, pslot + 1);
 
 	/*
 	 * then try to empty the right most buffer into the middle
 	 */
-	if (extent_buffer_uptodate(right)) {
+	if (pslot + 1 < btrfs_header_nritems(parent)) {
 		u32 right_nr;
+
+		right = btrfs_read_node_slot(parent, pslot + 1);
+		if (IS_ERR(right))
+			return PTR_ERR(right);
+
+		__btrfs_tree_lock(right, BTRFS_NESTING_RIGHT);
+
 		right_nr = btrfs_header_nritems(right);
-		if (right_nr >= BTRFS_NODEPTRS_PER_BLOCK(root->fs_info) - 1) {
+		if (right_nr >= BTRFS_NODEPTRS_PER_BLOCK(fs_info) - 1) {
 			wret = 1;
 		} else {
 			ret = btrfs_cow_block(trans, root, right,
 					      parent, pslot + 1,
-					      &right, BTRFS_NESTING_NORMAL);
+					      &right, BTRFS_NESTING_RIGHT_COW);
 			if (ret)
 				wret = 1;
 			else {
@@ -1408,6 +1430,14 @@ static noinline int push_nodes_for_insert(struct btrfs_trans_handle *trans,
 			struct btrfs_disk_key disk_key;
 
 			btrfs_node_key(right, &disk_key, 0);
+			ret = btrfs_tree_mod_log_insert_key(parent, pslot + 1,
+					BTRFS_MOD_LOG_KEY_REPLACE);
+			if (ret < 0) {
+				btrfs_tree_unlock(right);
+				free_extent_buffer(right);
+				btrfs_abort_transaction(trans, ret);
+				return ret;
+			}
 			btrfs_set_node_key(parent, &disk_key, pslot + 1);
 			btrfs_mark_buffer_dirty(trans, parent);
 
@@ -1416,12 +1446,15 @@ static noinline int push_nodes_for_insert(struct btrfs_trans_handle *trans,
 				path->slots[level + 1] += 1;
 				path->slots[level] = orig_slot -
 					btrfs_header_nritems(mid);
+				btrfs_tree_unlock(mid);
 				free_extent_buffer(mid);
 			} else {
+				btrfs_tree_unlock(right);
 				free_extent_buffer(right);
 			}
 			return 0;
 		}
+		btrfs_tree_unlock(right);
 		free_extent_buffer(right);
 	}
 	return 1;
