@@ -314,18 +314,6 @@ static void add_root_to_dirty_list(struct btrfs_root *root)
 	spin_unlock(&fs_info->trans_lock);
 }
 
-static void root_add_used(struct btrfs_root *root, u32 size)
-{
-        btrfs_set_root_used(&root->root_item,
-                            btrfs_root_used(&root->root_item) + size);
-}
-
-static void root_sub_used(struct btrfs_root *root, u32 size)
-{
-        btrfs_set_root_used(&root->root_item,
-                            btrfs_root_used(&root->root_item) - size);
-}
-
 /*
  * used by snapshot creation to make a copy of a root for a tree with
  * a given objectid.  The buffer with the new root node is returned in
@@ -1011,6 +999,22 @@ int btrfs_bin_search(struct extent_buffer *eb, int first_slot,
 	}
 	*slot = low;
 	return 1;
+}
+
+static void root_add_used(struct btrfs_root *root, u32 size)
+{
+	spin_lock(&root->accounting_lock);
+	btrfs_set_root_used(&root->root_item,
+			    btrfs_root_used(&root->root_item) + size);
+	spin_unlock(&root->accounting_lock);
+}
+
+static void root_sub_used(struct btrfs_root *root, u32 size)
+{
+	spin_lock(&root->accounting_lock);
+	btrfs_set_root_used(&root->root_item,
+			    btrfs_root_used(&root->root_item) - size);
+	spin_unlock(&root->accounting_lock);
 }
 
 struct extent_buffer *btrfs_read_node_slot(struct extent_buffer *parent,
