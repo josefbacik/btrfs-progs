@@ -20,12 +20,15 @@
 #include <string.h>
 #include "kernel-lib/bitops.h"
 #include "kernel-lib/sizes.h"
+#include "kernel-lib/trace.h"
 #include "kernel-shared/ctree.h"
 #include "kernel-shared/disk-io.h"
 #include "kernel-shared/transaction.h"
 #include "kernel-shared/print-tree.h"
 #include "kernel-shared/tree-checker.h"
 #include "kernel-shared/volumes.h"
+#include "kernel-shared/messages.h"
+#include "kernel-shared/tree-mod-log.h"
 #include "common/internal.h"
 #include "common/messages.h"
 
@@ -413,8 +416,10 @@ int btrfs_block_can_be_shared(struct btrfs_root *root,
 static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
 				       struct btrfs_root *root,
 				       struct extent_buffer *buf,
-				       struct extent_buffer *cow)
+				       struct extent_buffer *cow,
+				       int *last_ref)
 {
+	struct btrfs_fs_info *fs_info = root->fs_info;
 	u64 refs;
 	u64 owner;
 	u64 flags;
@@ -439,12 +444,20 @@ static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
 	 */
 
 	if (btrfs_block_can_be_shared(root, buf)) {
-		ret = btrfs_lookup_extent_info(trans, trans->fs_info,
-					       buf->start,
+		ret = btrfs_lookup_extent_info(trans, fs_info, buf->start,
 					       btrfs_header_level(buf), 1,
 					       &refs, &flags);
-		BUG_ON(ret);
-		BUG_ON(refs == 0);
+		if (ret)
+			return ret;
+		if (unlikely(refs == 0)) {
+			btrfs_crit(fs_info,
+		"found 0 references for tree block at bytenr %llu level %d root %llu",
+				   buf->start, btrfs_header_level(buf),
+				   btrfs_root_id(root));
+			ret = -EUCLEAN;
+			btrfs_abort_transaction(trans, ret);
+			return ret;
+		}
 	} else {
 		refs = 1;
 		if (root->root_key.objectid == BTRFS_TREE_RELOC_OBJECTID ||
@@ -455,22 +468,25 @@ static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
 	}
 
 	owner = btrfs_header_owner(buf);
-	BUG_ON(!(flags & BTRFS_BLOCK_FLAG_FULL_BACKREF) &&
-	       owner == BTRFS_TREE_RELOC_OBJECTID);
+	BUG_ON(owner == BTRFS_TREE_RELOC_OBJECTID &&
+	       !(flags & BTRFS_BLOCK_FLAG_FULL_BACKREF));
 
 	if (refs > 1) {
 		if ((owner == root->root_key.objectid ||
 		     root->root_key.objectid == BTRFS_TREE_RELOC_OBJECTID) &&
 		    !(flags & BTRFS_BLOCK_FLAG_FULL_BACKREF)) {
 			ret = btrfs_inc_ref(trans, root, buf, 1);
-			BUG_ON(ret);
+			if (ret)
+				return ret;
 
 			if (root->root_key.objectid ==
 			    BTRFS_TREE_RELOC_OBJECTID) {
 				ret = btrfs_dec_ref(trans, root, buf, 0);
-				BUG_ON(ret);
+				if (ret)
+					return ret;
 				ret = btrfs_inc_ref(trans, root, cow, 1);
-				BUG_ON(ret);
+				if (ret)
+					return ret;
 			}
 			new_flags |= BTRFS_BLOCK_FLAG_FULL_BACKREF;
 		} else {
@@ -480,11 +496,13 @@ static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
 				ret = btrfs_inc_ref(trans, root, cow, 1);
 			else
 				ret = btrfs_inc_ref(trans, root, cow, 0);
-			BUG_ON(ret);
+			if (ret)
+				return ret;
 		}
 		if (new_flags != 0) {
 			ret = btrfs_set_disk_extent_flags(trans, buf, new_flags);
-			BUG_ON(ret);
+			if (ret)
+				return ret;
 		}
 	} else {
 		if (flags & BTRFS_BLOCK_FLAG_FULL_BACKREF) {
@@ -493,11 +511,14 @@ static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
 				ret = btrfs_inc_ref(trans, root, cow, 1);
 			else
 				ret = btrfs_inc_ref(trans, root, cow, 0);
-			BUG_ON(ret);
+			if (ret)
+				return ret;
 			ret = btrfs_dec_ref(trans, root, buf, 1);
-			BUG_ON(ret);
+			if (ret)
+				return ret;
 		}
 		btrfs_clear_buffer_dirty(trans, buf);
+		*last_ref = 1;
 	}
 	return 0;
 }
@@ -514,19 +535,30 @@ static noinline int update_ref_for_cow(struct btrfs_trans_handle *trans,
  * bytes the allocator should try to find free next to the block it returns.
  * This is just a hint and may be ignored by the allocator.
  */
-static noinline int __btrfs_cow_block(struct btrfs_trans_handle *trans,
-			     struct btrfs_root *root,
-			     struct extent_buffer *buf,
-			     struct extent_buffer *parent, int parent_slot,
-			     struct extent_buffer **cow_ret,
-			     u64 search_start, u64 empty_size)
+int btrfs_force_cow_block(struct btrfs_trans_handle *trans,
+			  struct btrfs_root *root,
+			  struct extent_buffer *buf,
+			  struct extent_buffer *parent, int parent_slot,
+			  struct extent_buffer **cow_ret,
+			  u64 search_start, u64 empty_size,
+			  enum btrfs_lock_nesting nest)
 {
-	struct extent_buffer *cow;
+	struct btrfs_fs_info *fs_info = root->fs_info;
 	struct btrfs_disk_key disk_key;
-	int level;
+	struct extent_buffer *cow;
+	int level, ret;
+	int last_ref = 0;
+	int unlock_orig = 0;
+	u64 parent_start = 0;
+	u64 reloc_src_root = 0;
+
+	if (*cow_ret == buf)
+		unlock_orig = 1;
+
+	btrfs_assert_tree_write_locked(buf);
 
 	WARN_ON(test_bit(BTRFS_ROOT_SHAREABLE, &root->state) &&
-		trans->transid != root->fs_info->running_transaction->transid);
+		trans->transid != fs_info->running_transaction->transid);
 	WARN_ON(test_bit(BTRFS_ROOT_SHAREABLE, &root->state) &&
 		trans->transid != root->last_trans);
 
@@ -537,11 +569,18 @@ static noinline int __btrfs_cow_block(struct btrfs_trans_handle *trans,
 	else
 		btrfs_node_key(buf, &disk_key, 0);
 
-	cow = btrfs_alloc_tree_block(trans, root, 0, root->root_key.objectid,
-				     &disk_key, level, search_start, empty_size,
-				     0, BTRFS_NESTING_NORMAL);
+	if (root->root_key.objectid == BTRFS_TREE_RELOC_OBJECTID) {
+		if (parent)
+			parent_start = parent->start;
+		reloc_src_root = btrfs_header_owner(buf);
+	}
+	cow = btrfs_alloc_tree_block(trans, root, parent_start,
+				     root->root_key.objectid, &disk_key, level,
+				     search_start, empty_size, reloc_src_root, nest);
 	if (IS_ERR(cow))
 		return PTR_ERR(cow);
+
+	/* cow is set to blocking by btrfs_init_new_buffer */
 
 	copy_extent_buffer_full(cow, buf);
 	btrfs_set_header_bytenr(cow, cow->start);
@@ -554,38 +593,76 @@ static noinline int __btrfs_cow_block(struct btrfs_trans_handle *trans,
 	else
 		btrfs_set_header_owner(cow, root->root_key.objectid);
 
-	write_extent_buffer_fsid(cow, root->fs_info->fs_devices->metadata_uuid);
+	write_extent_buffer_fsid(cow, fs_info->fs_devices->metadata_uuid);
 
-	WARN_ON(!(buf->flags & EXTENT_BUFFER_BAD_TRANSID) &&
-		btrfs_header_generation(buf) > trans->transid);
+	ret = update_ref_for_cow(trans, root, buf, cow, &last_ref);
+	if (ret) {
+		btrfs_tree_unlock(cow);
+		free_extent_buffer(cow);
+		btrfs_abort_transaction(trans, ret);
+		return ret;
+	}
 
-	update_ref_for_cow(trans, root, buf, cow);
+	if (test_bit(BTRFS_ROOT_SHAREABLE, &root->state)) {
+		ret = btrfs_reloc_cow_block(trans, root, buf, cow);
+		if (ret) {
+			btrfs_tree_unlock(cow);
+			free_extent_buffer(cow);
+			btrfs_abort_transaction(trans, ret);
+			return ret;
+		}
+	}
 
 	if (buf == root->node) {
-		root->node = cow;
-		extent_buffer_get(cow);
+		WARN_ON(parent && parent != buf);
+		if (root->root_key.objectid == BTRFS_TREE_RELOC_OBJECTID ||
+		    btrfs_header_backref_rev(buf) < BTRFS_MIXED_BACKREF_REV)
+			parent_start = buf->start;
 
-		btrfs_free_extent(trans, buf->start, buf->len, 0,
-				  root->root_key.objectid, level, 0);
+		ret = btrfs_tree_mod_log_insert_root(root->node, cow, true);
+		if (ret < 0) {
+			btrfs_tree_unlock(cow);
+			free_extent_buffer(cow);
+			btrfs_abort_transaction(trans, ret);
+			return ret;
+		}
+		atomic_inc(&cow->refs);
+		rcu_assign_pointer(root->node, cow);
+
+		btrfs_free_tree_block(trans, btrfs_root_id(root), buf,
+				      parent_start, last_ref);
 		free_extent_buffer(buf);
 		add_root_to_dirty_list(root);
 	} else {
+		WARN_ON(trans->transid != btrfs_header_generation(parent));
+		ret = btrfs_tree_mod_log_insert_key(parent, parent_slot,
+						    BTRFS_MOD_LOG_KEY_REPLACE);
+		if (ret) {
+			btrfs_tree_unlock(cow);
+			free_extent_buffer(cow);
+			btrfs_abort_transaction(trans, ret);
+			return ret;
+		}
 		btrfs_set_node_blockptr(parent, parent_slot,
 					cow->start);
-		WARN_ON(trans->transid == 0);
 		btrfs_set_node_ptr_generation(parent, parent_slot,
 					      trans->transid);
 		btrfs_mark_buffer_dirty(trans, parent);
-		WARN_ON(btrfs_header_generation(parent) != trans->transid);
-
-		btrfs_free_extent(trans, buf->start, buf->len, 0,
-				  root->root_key.objectid, level, 0);
+		if (last_ref) {
+			ret = btrfs_tree_mod_log_free_eb(buf);
+			if (ret) {
+				btrfs_tree_unlock(cow);
+				free_extent_buffer(cow);
+				btrfs_abort_transaction(trans, ret);
+				return ret;
+			}
+		}
+		btrfs_free_tree_block(trans, btrfs_root_id(root), buf,
+				      parent_start, last_ref);
 	}
-	if (!list_empty(&buf->recow)) {
-		list_del_init(&buf->recow);
-		free_extent_buffer(buf);
-	}
-	free_extent_buffer(buf);
+	if (unlock_orig)
+		btrfs_tree_unlock(buf);
+	free_extent_buffer_stale(buf);
 	btrfs_mark_buffer_dirty(trans, cow);
 	*cow_ret = cow;
 	return 0;
@@ -595,45 +672,95 @@ static inline int should_cow_block(struct btrfs_trans_handle *trans,
 				   struct btrfs_root *root,
 				   struct extent_buffer *buf)
 {
+	if (btrfs_is_testing(root->fs_info))
+		return 0;
+
+	/* Ensure we can see the FORCE_COW bit */
+	smp_mb__before_atomic();
+
+	/*
+	 * We do not need to cow a block if
+	 * 1) this block is not created or changed in this transaction;
+	 * 2) this block does not belong to TREE_RELOC tree;
+	 * 3) the root is not forced COW.
+	 *
+	 * What is forced COW:
+	 *    when we create snapshot during committing the transaction,
+	 *    after we've finished copying src root, we must COW the shared
+	 *    block to ensure the metadata consistency.
+	 */
 	if (btrfs_header_generation(buf) == trans->transid &&
 	    !btrfs_header_flag(buf, BTRFS_HEADER_FLAG_WRITTEN) &&
 	    !(root->root_key.objectid != BTRFS_TREE_RELOC_OBJECTID &&
-	      btrfs_header_flag(buf, BTRFS_HEADER_FLAG_RELOC)))
+	      btrfs_header_flag(buf, BTRFS_HEADER_FLAG_RELOC)) &&
+	    !test_bit(BTRFS_ROOT_FORCE_COW, &root->state))
 		return 0;
 	return 1;
 }
 
+/*
+ * COWs a single block, see btrfs_force_cow_block() for the real work.
+ * This version of it has extra checks so that a block isn't COWed more than
+ * once per transaction, as long as it hasn't been written yet
+ */
 int btrfs_cow_block(struct btrfs_trans_handle *trans,
 		    struct btrfs_root *root, struct extent_buffer *buf,
 		    struct extent_buffer *parent, int parent_slot,
 		    struct extent_buffer **cow_ret,
 		    enum btrfs_lock_nesting nest)
 {
+	struct btrfs_fs_info *fs_info = root->fs_info;
 	u64 search_start;
 	int ret;
+
+	if (unlikely(test_bit(BTRFS_ROOT_DELETING, &root->state))) {
+		btrfs_abort_transaction(trans, -EUCLEAN);
+		btrfs_crit(fs_info,
+		   "attempt to COW block %llu on root %llu that is being deleted",
+			   buf->start, btrfs_root_id(root));
+		return -EUCLEAN;
+	}
+
+
 	/*
-	if (trans->transaction != root->fs_info->running_transaction) {
-		printk(KERN_CRIT "trans %llu running %llu\n", trans->transid,
-		       root->fs_info->running_transaction->transid);
-		WARN_ON(1);
+	 * COWing must happen through a running transaction, which always
+	 * matches the current fs generation (it's a transaction with a state
+	 * less than TRANS_STATE_UNBLOCKED). If it doesn't, then turn the fs
+	 * into error state to prevent the commit of any transaction.
+	 *
+	 * MODIFIED: We don't have trans->transaction.
+	 */
+	if (unlikely(trans->transid != fs_info->generation)) {
+		btrfs_abort_transaction(trans, -EUCLEAN);
+		btrfs_crit(fs_info,
+"unexected transaction when attempting to COW block %llu on root %llu, transaction %llu fs generation %llu",
+			   buf->start, btrfs_root_id(root), trans->transid,
+			   fs_info->generation);
+		return -EUCLEAN;
 	}
-	*/
-	if (trans->transid != root->fs_info->generation) {
-		printk(KERN_CRIT "trans %llu running %llu\n",
-			(unsigned long long)trans->transid,
-			(unsigned long long)root->fs_info->generation);
-		WARN_ON(1);
-	}
+
 	if (!should_cow_block(trans, root, buf)) {
 		*cow_ret = buf;
 		return 0;
 	}
 
-	search_start = buf->start & ~((u64)SZ_1G - 1);
-	ret = __btrfs_cow_block(trans, root, buf, parent,
-				 parent_slot, cow_ret, search_start, 0);
+	search_start = round_down(buf->start, SZ_1G);
+
+	/*
+	 * Before CoWing this block for later modification, check if it's
+	 * the subtree root and do the delayed subtree trace if needed.
+	 *
+	 * Also We don't care about the error, as it's handled internally.
+	 */
+	btrfs_qgroup_trace_subtree_after_cow(trans, root, buf);
+	ret = btrfs_force_cow_block(trans, root, buf, parent, parent_slot,
+				    cow_ret, search_start, 0, nest);
+
+	trace_btrfs_cow_block(root, buf, *cow_ret);
+
 	return ret;
 }
+ALLOW_ERROR_INJECTION(btrfs_cow_block, ERRNO);
 
 /*
  * helper function for defrag to decide if two blocks pointed to by a
