@@ -1017,40 +1017,37 @@ static void root_sub_used(struct btrfs_root *root, u32 size)
 	spin_unlock(&root->accounting_lock);
 }
 
+/* given a node and slot number, this reads the blocks it points to.  The
+ * extent buffer is returned with a reference taken (but unlocked).
+ */
 struct extent_buffer *btrfs_read_node_slot(struct extent_buffer *parent,
 					   int slot)
 {
-	struct btrfs_fs_info *fs_info = parent->fs_info;
-	struct extent_buffer *ret;
-	struct btrfs_tree_parent_check check = { 0 };
 	int level = btrfs_header_level(parent);
+	struct btrfs_tree_parent_check check = { 0 };
+	struct extent_buffer *eb;
 
-	if (slot < 0)
-		return NULL;
-	if (slot >= btrfs_header_nritems(parent))
-		return NULL;
+	if (slot < 0 || slot >= btrfs_header_nritems(parent))
+		return ERR_PTR(-ENOENT);
 
-	if (level == 0)
-		return NULL;
+	ASSERT(level);
 
-	check.owner_root = btrfs_header_owner(parent);
-	check.transid = btrfs_node_ptr_generation(parent, slot);
 	check.level = level - 1;
+	check.transid = btrfs_node_ptr_generation(parent, slot);
+	check.owner_root = btrfs_header_owner(parent);
+	check.has_first_key = true;
+	btrfs_node_key_to_cpu(parent, &check.first_key, slot);
 
-	ret = read_tree_block(fs_info, btrfs_node_blockptr(parent, slot),
-			      &check);
-	if (!extent_buffer_uptodate(ret))
-		return ERR_PTR(-EIO);
-
-	if (btrfs_header_level(ret) != level - 1) {
-		error(
-"child eb corrupted: parent bytenr=%llu item=%d parent level=%d child bytenr=%llu child level=%d",
-		      btrfs_header_bytenr(parent), slot, btrfs_header_level(parent),
-		      btrfs_header_bytenr(ret), btrfs_header_level(ret));
-		free_extent_buffer(ret);
+	eb = read_tree_block(parent->fs_info, btrfs_node_blockptr(parent, slot),
+			     &check);
+	if (IS_ERR(eb))
+		return eb;
+	if (!extent_buffer_uptodate(eb)) {
+		free_extent_buffer(eb);
 		return ERR_PTR(-EIO);
 	}
-	return ret;
+
+	return eb;
 }
 
 /*
