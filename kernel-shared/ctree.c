@@ -1472,66 +1472,78 @@ static void reada_for_search(struct btrfs_fs_info *fs_info,
 	struct btrfs_disk_key disk_key;
 	u32 nritems;
 	u64 search;
-	u64 lowest_read;
-	u64 highest_read;
+	u64 target;
 	u64 nread = 0;
-	int direction = path->reada;
-	struct extent_buffer *eb;
+	u64 nread_max;
 	u32 nr;
+	u32 blocksize;
 	u32 nscan = 0;
 
-	if (level != 1)
+	if (level != 1 && path->reada != READA_FORWARD_ALWAYS)
 		return;
 
 	if (!path->nodes[level])
 		return;
 
 	node = path->nodes[level];
-	search = btrfs_node_blockptr(node, slot);
-	eb = btrfs_find_tree_block(fs_info, search, fs_info->nodesize);
-	if (eb) {
-		free_extent_buffer(eb);
-		return;
+
+	/*
+	 * Since the time between visiting leaves is much shorter than the time
+	 * between visiting nodes, limit read ahead of nodes to 1, to avoid too
+	 * much IO at once (possibly random).
+	 */
+	if (path->reada == READA_FORWARD_ALWAYS) {
+		if (level > 1)
+			nread_max = node->fs_info->nodesize;
+		else
+			nread_max = SZ_128K;
+	} else {
+		nread_max = SZ_64K;
 	}
 
-	highest_read = search;
-	lowest_read = search;
+	search = btrfs_node_blockptr(node, slot);
+	blocksize = fs_info->nodesize;
+	if (path->reada != READA_FORWARD_ALWAYS) {
+		struct extent_buffer *eb;
+
+		eb = find_extent_buffer(fs_info, search);
+		if (eb) {
+			free_extent_buffer(eb);
+			return;
+		}
+	}
+
+	target = search;
 
 	nritems = btrfs_header_nritems(node);
 	nr = slot;
-	while(1) {
-		if (direction < 0) {
+
+	while (1) {
+		if (path->reada == READA_BACK) {
 			if (nr == 0)
 				break;
 			nr--;
-		} else if (direction > 0) {
+		} else if (path->reada == READA_FORWARD ||
+			   path->reada == READA_FORWARD_ALWAYS) {
 			nr++;
 			if (nr >= nritems)
 				break;
 		}
-		if (path->reada < 0 && objectid) {
+		if (path->reada == READA_BACK && objectid) {
 			btrfs_node_key(node, &disk_key, nr);
 			if (btrfs_disk_key_objectid(&disk_key) != objectid)
 				break;
 		}
 		search = btrfs_node_blockptr(node, nr);
-		if ((search >= lowest_read && search <= highest_read) ||
-		    (search < lowest_read && lowest_read - search <= 32768) ||
-		    (search > highest_read && search - highest_read <= 32768)) {
-			readahead_tree_block(fs_info, search,
-				     btrfs_node_ptr_generation(node, nr));
-			nread += fs_info->nodesize;
+		if (path->reada == READA_FORWARD_ALWAYS ||
+		    (search <= target && target - search <= 65536) ||
+		    (search > target && search - target <= 65536)) {
+			btrfs_readahead_node_child(node, nr);
+			nread += blocksize;
 		}
 		nscan++;
-		if (path->reada < 2 && (nread > SZ_256K || nscan > 32))
+		if (nread > nread_max || nscan > 32)
 			break;
-		if(nread > SZ_1M || nscan > 128)
-			break;
-
-		if (search < lowest_read)
-			lowest_read = search;
-		if (search > highest_read)
-			highest_read = search;
 	}
 }
 
