@@ -859,19 +859,19 @@ int btrfs_bin_search(struct extent_buffer *eb, int first_slot,
 	return 1;
 }
 
-static void root_add_used(struct btrfs_root *root, u32 size)
+static void root_add_used_bytes(struct btrfs_root *root)
 {
 	spin_lock(&root->accounting_lock);
 	btrfs_set_root_used(&root->root_item,
-			    btrfs_root_used(&root->root_item) + size);
+		btrfs_root_used(&root->root_item) + root->fs_info->nodesize);
 	spin_unlock(&root->accounting_lock);
 }
 
-static void root_sub_used(struct btrfs_root *root, u32 size)
+static void root_sub_used_bytes(struct btrfs_root *root)
 {
 	spin_lock(&root->accounting_lock);
 	btrfs_set_root_used(&root->root_item,
-			    btrfs_root_used(&root->root_item) - size);
+		btrfs_root_used(&root->root_item) - root->fs_info->nodesize);
 	spin_unlock(&root->accounting_lock);
 }
 
@@ -987,7 +987,7 @@ static noinline int balance_level(struct btrfs_trans_handle *trans,
 		/* once for the path */
 		free_extent_buffer(mid);
 
-		root_sub_used(root, mid->len);
+		root_sub_used_bytes(root);
 		btrfs_free_tree_block(trans, btrfs_root_id(root), mid, 0, 1);
 		/* once for the root ptr */
 		free_extent_buffer_stale(mid);
@@ -1057,7 +1057,7 @@ static noinline int balance_level(struct btrfs_trans_handle *trans,
 				right = NULL;
 				goto out;
 			}
-			root_sub_used(root, right->len);
+			root_sub_used_bytes(root);
 			btrfs_free_tree_block(trans, btrfs_root_id(root), right,
 					      0, 1);
 			free_extent_buffer_stale(right);
@@ -1115,7 +1115,7 @@ static noinline int balance_level(struct btrfs_trans_handle *trans,
 			mid = NULL;
 			goto out;
 		}
-		root_sub_used(root, mid->len);
+		root_sub_used_bytes(root);
 		btrfs_free_tree_block(trans, btrfs_root_id(root), mid, 0, 1);
 		free_extent_buffer_stale(mid);
 		mid = NULL;
@@ -2533,7 +2533,7 @@ static int noinline insert_new_root(struct btrfs_trans_handle *trans,
 	btrfs_set_header_backref_rev(c, BTRFS_MIXED_BACKREF_REV);
 	btrfs_set_header_owner(c, root->root_key.objectid);
 
-	root_add_used(root, root->fs_info->nodesize);
+	root_add_used_bytes(root);
 
 	write_extent_buffer_fsid(c, root->fs_info->fs_devices->metadata_uuid);
 	write_extent_buffer_chunk_tree_uuid(c, root->fs_info->chunk_tree_uuid);
@@ -2654,7 +2654,7 @@ static int split_node(struct btrfs_trans_handle *trans, struct btrfs_root
 	write_extent_buffer_fsid(split, root->fs_info->fs_devices->metadata_uuid);
 	write_extent_buffer_chunk_tree_uuid(split, root->fs_info->chunk_tree_uuid);
 
-	root_add_used(root, root->fs_info->nodesize);
+	root_add_used_bytes(root);
 
 	copy_extent_buffer(split, c,
 			   btrfs_node_key_ptr_offset(split, 0),
@@ -3219,7 +3219,7 @@ again:
 	write_extent_buffer_fsid(right, root->fs_info->fs_devices->metadata_uuid);
 	write_extent_buffer_chunk_tree_uuid(right, root->fs_info->chunk_tree_uuid);
 
-	root_add_used(root, root->fs_info->nodesize);
+	root_add_used_bytes(root);
 
 	if (split == 0) {
 		if (mid <= slot) {
@@ -3712,7 +3712,7 @@ static noinline int btrfs_del_leaf(struct btrfs_trans_handle *trans,
 	WARN_ON(btrfs_header_generation(leaf) != trans->transid);
 	btrfs_del_ptr(trans, root, path, 1, path->slots[1]);
 
-	root_sub_used(root, leaf->len);
+	root_sub_used_bytes(root);
 
 	ret = btrfs_free_extent(trans, leaf->start, leaf->len, 0,
 				root->root_key.objectid, 0, 0);
