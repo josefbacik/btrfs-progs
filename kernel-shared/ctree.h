@@ -1150,10 +1150,6 @@ void btrfs_set_item_key_safe(struct btrfs_fs_info *fs_info,
 struct extent_buffer *btrfs_root_node(struct btrfs_root *root);
 int btrfs_block_can_be_shared(struct btrfs_root *root,
 			      struct extent_buffer *buf);
-int btrfs_realloc_node(struct btrfs_trans_handle *trans,
-		       struct btrfs_root *root, struct extent_buffer *parent,
-		       int start_slot, u64 *last_ret,
-		       struct btrfs_key *progress);
 
 int btrfs_super_csum_size(const struct btrfs_super_block *sb);
 const char *btrfs_super_csum_name(u16 csum_type);
