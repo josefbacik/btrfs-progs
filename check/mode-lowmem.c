@@ -585,9 +585,14 @@ static int delete_item(struct btrfs_root *root, struct btrfs_path *path)
 	if (ret)
 		goto out;
 
-	if (path->slots[0] == 0)
-		btrfs_prev_leaf(root, path);
-	else
+	if (path->slots[0] == 0) {
+		ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
+		if (ret < 0)
+			goto out;
+		UASSERT(ret != 0);
+	}
+
+	if (path->slots[0])
 		path->slots[0]--;
 out:
 	btrfs_commit_transaction(trans, root);
