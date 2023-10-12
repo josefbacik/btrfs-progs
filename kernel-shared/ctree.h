@@ -1144,7 +1144,6 @@ static inline int btrfs_next_item(struct btrfs_root *root,
 	return 0;
 }
 
-int btrfs_prev_leaf(struct btrfs_root *root, struct btrfs_path *path);
 int btrfs_leaf_free_space(const struct extent_buffer *leaf);
 void btrfs_set_item_key_safe(struct btrfs_fs_info *fs_info,
 			     struct btrfs_path *path,
