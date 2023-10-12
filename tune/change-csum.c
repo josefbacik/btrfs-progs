@@ -466,7 +466,7 @@ static int change_csum_objectids(struct btrfs_fs_info *fs_info)
 			btrfs_item_key_to_cpu(path.nodes[0], &found_key, i);
 			found_key.objectid = BTRFS_EXTENT_CSUM_OBJECTID;
 			path.slots[0] = i;
-			btrfs_set_item_key_safe(fs_info, &path, &found_key);
+			btrfs_set_item_key_safe(trans, &path, &found_key);
 		}
 		btrfs_release_path(&path);
 	}
