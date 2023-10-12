@@ -2910,29 +2910,43 @@ static noinline int insert_new_root(struct btrfs_trans_handle *trans,
  *
  * slot and level indicate where you want the key to go, and
  * blocknr is the block the key points to.
- *
- * returns zero on success and < 0 on any error
  */
-static int insert_ptr(struct btrfs_trans_handle *trans, struct btrfs_root
-		      *root, struct btrfs_path *path, struct btrfs_disk_key
-		      *key, u64 bytenr, int slot, int level)
+static int insert_ptr(struct btrfs_trans_handle *trans,
+		      struct btrfs_path *path,
+		      struct btrfs_disk_key *key, u64 bytenr,
+		      int slot, int level)
 {
 	struct extent_buffer *lower;
 	int nritems;
+	int ret;
 
 	BUG_ON(!path->nodes[level]);
+	btrfs_assert_tree_write_locked(path->nodes[level]);
 	lower = path->nodes[level];
 	nritems = btrfs_header_nritems(lower);
-	if (slot > nritems)
-		BUG();
-	if (nritems == BTRFS_NODEPTRS_PER_BLOCK(root->fs_info))
-		BUG();
-	if (slot < nritems) {
-		/* shift the items */
+	BUG_ON(slot > nritems);
+	BUG_ON(nritems == BTRFS_NODEPTRS_PER_BLOCK(trans->fs_info));
+	if (slot != nritems) {
+		if (level) {
+			ret = btrfs_tree_mod_log_insert_move(lower, slot + 1,
+					slot, nritems - slot);
+			if (ret < 0) {
+				btrfs_abort_transaction(trans, ret);
+				return ret;
+			}
+		}
 		memmove_extent_buffer(lower,
 			      btrfs_node_key_ptr_offset(lower, slot + 1),
 			      btrfs_node_key_ptr_offset(lower, slot),
 			      (nritems - slot) * sizeof(struct btrfs_key_ptr));
+	}
+	if (level) {
+		ret = btrfs_tree_mod_log_insert_key(lower, slot,
+						    BTRFS_MOD_LOG_KEY_ADD);
+		if (ret < 0) {
+			btrfs_abort_transaction(trans, ret);
+			return ret;
+		}
 	}
 	btrfs_set_node_key(lower, key, slot);
 	btrfs_set_node_blockptr(lower, slot, bytenr);
@@ -2940,6 +2954,7 @@ static int insert_ptr(struct btrfs_trans_handle *trans, struct btrfs_root
 	btrfs_set_node_ptr_generation(lower, slot, trans->transid);
 	btrfs_set_header_nritems(lower, nritems + 1);
 	btrfs_mark_buffer_dirty(trans, lower);
+
 	return 0;
 }
 
@@ -3012,7 +3027,7 @@ static int split_node(struct btrfs_trans_handle *trans, struct btrfs_root
 	btrfs_mark_buffer_dirty(trans, c);
 	btrfs_mark_buffer_dirty(trans, split);
 
-	wret = insert_ptr(trans, root, path, &disk_key, split->start,
+	wret = insert_ptr(trans, path, &disk_key, split->start,
 			  path->slots[level + 1] + 1,
 			  level + 1);
 	if (wret)
@@ -3426,7 +3441,7 @@ static noinline int copy_for_split(struct btrfs_trans_handle *trans,
 	btrfs_set_header_nritems(l, mid);
 	ret = 0;
 	btrfs_item_key(right, &disk_key, 0);
-	wret = insert_ptr(trans, root, path, &disk_key, right->start,
+	wret = insert_ptr(trans, path, &disk_key, right->start,
 			  path->slots[1] + 1, 1);
 	if (wret)
 		ret = wret;
@@ -3569,7 +3584,7 @@ again:
 	if (split == 0) {
 		if (mid <= slot) {
 			btrfs_set_header_nritems(right, 0);
-			wret = insert_ptr(trans, root, path,
+			wret = insert_ptr(trans, path,
 					  &disk_key, right->start,
 					  path->slots[1] + 1, 1);
 			if (wret)
@@ -3581,7 +3596,7 @@ again:
 			path->slots[1] += 1;
 		} else {
 			btrfs_set_header_nritems(right, 0);
-			wret = insert_ptr(trans, root, path,
+			wret = insert_ptr(trans, path,
 					  &disk_key,
 					  right->start,
 					  path->slots[1], 1);
