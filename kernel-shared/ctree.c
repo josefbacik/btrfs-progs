@@ -2710,9 +2710,8 @@ static int push_node_left(struct btrfs_trans_handle *trans,
 	if (!empty && src_nritems <= 8)
 		return 1;
 
-	if (push_items <= 0) {
+	if (push_items <= 0)
 		return 1;
-	}
 
 	if (empty) {
 		push_items = min(src_nritems, push_items);
@@ -2729,12 +2728,27 @@ static int push_node_left(struct btrfs_trans_handle *trans,
 	} else
 		push_items = min(src_nritems - 8, push_items);
 
+	/* dst is the left eb, src is the middle eb */
+	if (check_sibling_keys(dst, src)) {
+		ret = -EUCLEAN;
+		btrfs_abort_transaction(trans, ret);
+		return ret;
+	}
+	ret = btrfs_tree_mod_log_eb_copy(dst, src, dst_nritems, 0, push_items);
+	if (ret) {
+		btrfs_abort_transaction(trans, ret);
+		return ret;
+	}
 	copy_extent_buffer(dst, src,
 			   btrfs_node_key_ptr_offset(dst, dst_nritems),
 			   btrfs_node_key_ptr_offset(src, 0),
-		           push_items * sizeof(struct btrfs_key_ptr));
+			   push_items * sizeof(struct btrfs_key_ptr));
 
 	if (push_items < src_nritems) {
+		/*
+		 * btrfs_tree_mod_log_eb_copy handles logging the move, so we
+		 * don't need to do an explicit tree mod log operation for it.
+		 */
 		memmove_extent_buffer(src, btrfs_node_key_ptr_offset(src, 0),
 				      btrfs_node_key_ptr_offset(src, push_items),
 				      (src_nritems - push_items) *
