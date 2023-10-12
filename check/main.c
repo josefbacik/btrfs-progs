@@ -2049,7 +2049,7 @@ static int repair_inode_isize(struct btrfs_trans_handle *trans,
 	ei = btrfs_item_ptr(path->nodes[0], path->slots[0],
 			    struct btrfs_inode_item);
 	btrfs_set_inode_size(path->nodes[0], ei, rec->found_size);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 	rec->errors &= ~I_ERR_DIR_ISIZE_WRONG;
 	printf("reset isize for dir %llu root %llu\n", rec->ino,
 	       root->root_key.objectid);
@@ -2096,7 +2096,7 @@ static int repair_inode_nbytes(struct btrfs_trans_handle *trans,
 	ei = btrfs_item_ptr(path->nodes[0], path->slots[0],
 			    struct btrfs_inode_item);
 	btrfs_set_inode_nbytes(path->nodes[0], ei, rec->found_size);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 	rec->errors &= ~I_ERR_FILE_NBYTES_WRONG;
 	printf("reset nbytes for ino %llu root %llu\n",
 	       rec->ino, root->root_key.objectid);
@@ -2147,7 +2147,7 @@ static int add_missing_dir_index(struct btrfs_root *root,
 	btrfs_set_dir_name_len(leaf, dir_item, backref->namelen);
 	name_ptr = (unsigned long)(dir_item + 1);
 	write_extent_buffer(leaf, backref->name, name_ptr, backref->namelen);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 	btrfs_release_path(&path);
 	btrfs_commit_transaction(trans, root);
 
@@ -2446,7 +2446,7 @@ static int reset_nlink(struct btrfs_trans_handle *trans,
 	inode_item = btrfs_item_ptr(path->nodes[0], path->slots[0],
 				    struct btrfs_inode_item);
 	btrfs_set_inode_nlink(path->nodes[0], inode_item, 0);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 	btrfs_release_path(path);
 
 	/*
@@ -2708,7 +2708,7 @@ static int repair_inline_ram_bytes(struct btrfs_trans_handle *trans,
 	fi = btrfs_item_ptr(path->nodes[0], path->slots[0],
 			    struct btrfs_file_extent_item);
 	btrfs_set_file_extent_ram_bytes(path->nodes[0], fi, on_disk_item_len);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 	printf("Repaired inline ram_bytes for root %llu ino %llu\n",
 		root->objectid, rec->ino);
 	rec->errors &= ~I_ERR_INLINE_RAM_BYTES_WRONG;
@@ -2945,7 +2945,7 @@ static int repair_inode_gen_original(struct btrfs_trans_handle *trans,
 			    struct btrfs_inode_item);
 	btrfs_set_inode_generation(path->nodes[0], ii, trans->transid);
 	btrfs_set_inode_transid(path->nodes[0], ii, trans->transid);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 	btrfs_release_path(path);
 	printf("resetting inode generation/transid to %llu for ino %llu\n",
 		trans->transid, rec->ino);
@@ -4385,7 +4385,7 @@ static int fix_key_order(struct btrfs_root *root, struct btrfs_path *path)
 		ret = swap_values(root, path, buf, i);
 		if (ret)
 			break;
-		btrfs_mark_buffer_dirty(buf);
+		btrfs_mark_buffer_dirty(NULL, buf);
 		i = 0;
 	}
 	return ret;
@@ -4422,7 +4422,7 @@ static int delete_bogus_item(struct btrfs_root *root,
 		btrfs_item_key(buf, &disk_key, 0);
 		btrfs_fixup_low_keys(path, &disk_key, 1);
 	}
-	btrfs_mark_buffer_dirty(buf);
+	btrfs_mark_buffer_dirty(NULL, buf);
 	return 0;
 }
 
@@ -4478,7 +4478,7 @@ again:
 				      btrfs_item_nr_offset(buf, 0) + offset,
 				      btrfs_item_size(buf, i));
 		btrfs_set_item_offset(buf, i, offset + shift);
-		btrfs_mark_buffer_dirty(buf);
+		btrfs_mark_buffer_dirty(NULL, buf);
 	}
 
 	/*
@@ -6838,7 +6838,7 @@ static int record_extent(struct btrfs_trans_handle *trans,
 					flags | BTRFS_EXTENT_FLAG_TREE_BLOCK);
 		}
 
-		btrfs_mark_buffer_dirty(leaf);
+		btrfs_mark_buffer_dirty(trans, leaf);
 		ret = btrfs_update_block_group(trans, rec->start,
 					       rec->max_size, 1, 0);
 		if (ret)
@@ -7103,7 +7103,7 @@ static int repair_ref(struct btrfs_path *path, struct data_backref *dback,
 		btrfs_set_file_extent_ram_bytes(leaf, fi, entry->bytes);
 	else
 		printf("ram bytes may be wrong?\n");
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 out:
 	err = btrfs_commit_transaction(trans, root);
 	btrfs_release_path(path);
@@ -7774,7 +7774,7 @@ retry:
 		flags &= ~BTRFS_BLOCK_FLAG_FULL_BACKREF;
 	}
 	btrfs_set_extent_flags(path.nodes[0], ei, flags);
-	btrfs_mark_buffer_dirty(path.nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path.nodes[0]);
 	btrfs_release_path(&path);
 	ret = btrfs_commit_transaction(trans, root);
 	if (!ret)
@@ -9122,7 +9122,7 @@ static struct extent_buffer *btrfs_fsck_clear_root(
 			    btrfs_header_chunk_tree_uuid(c),
 			    BTRFS_UUID_SIZE);
 
-	btrfs_mark_buffer_dirty(c);
+	btrfs_mark_buffer_dirty(trans, c);
 
 	/*
 	 * The root item may not exist, try to insert an empty one so it exists,
@@ -9150,7 +9150,7 @@ static struct extent_buffer *btrfs_fsck_clear_root(
 			    btrfs_item_ptr_offset(path->nodes[0],
 						  path->slots[0]),
 			    sizeof(ri));
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 	btrfs_free_path(path);
 	return c;
 }

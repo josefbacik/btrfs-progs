@@ -191,7 +191,7 @@ static int __btrfs_record_file_extent(struct btrfs_trans_handle *trans,
 			btrfs_set_extent_generation(leaf, ei, trans->transid);
 			btrfs_set_extent_flags(leaf, ei,
 					       BTRFS_EXTENT_FLAG_DATA);
-			btrfs_mark_buffer_dirty(leaf);
+			btrfs_mark_buffer_dirty(trans, leaf);
 
 			ret = btrfs_update_block_group(trans, disk_bytenr,
 						       num_bytes, 1, 0);
@@ -229,7 +229,7 @@ static int __btrfs_record_file_extent(struct btrfs_trans_handle *trans,
 	btrfs_set_file_extent_compression(leaf, fi, 0);
 	btrfs_set_file_extent_encryption(leaf, fi, 0);
 	btrfs_set_file_extent_other_encoding(leaf, fi, 0);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 
 	nbytes = btrfs_stack_inode_nbytes(inode) + num_bytes;
 	btrfs_set_stack_inode_nbytes(inode, nbytes);

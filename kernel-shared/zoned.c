@@ -938,7 +938,7 @@ bool btrfs_redirty_extent_buffer_for_zoned(struct btrfs_fs_info *fs_info,
 		next = cache->start + cache->write_offset;
 		BUG_ON(next + fs_info->nodesize > start);
 		eb = btrfs_find_create_tree_block(fs_info, next);
-		btrfs_mark_buffer_dirty(eb);
+		btrfs_mark_buffer_dirty(NULL, eb);
 		free_extent_buffer(eb);
 		return true;
 	}

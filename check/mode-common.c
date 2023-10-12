@@ -726,7 +726,7 @@ int reset_imode(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 	slot = path->slots[0];
 	iitem = btrfs_item_ptr(leaf, slot, struct btrfs_inode_item);
 	btrfs_set_inode_mode(leaf, iitem, mode);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 	return ret;
 }
 

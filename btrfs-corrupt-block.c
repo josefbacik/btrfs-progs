@@ -162,7 +162,7 @@ static void corrupt_keys(struct btrfs_trans_handle *trans,
 		btrfs_node_key(eb, &bad_key, bad_slot);
 		btrfs_set_node_key(eb, &bad_key, slot);
 	}
-	btrfs_mark_buffer_dirty(eb);
+	btrfs_mark_buffer_dirty(trans, eb);
 	if (!trans) {
 		u16 csum_size = fs_info->csum_size;
 		u16 csum_type = fs_info->csum_type;
@@ -255,7 +255,7 @@ static int corrupt_extent(struct btrfs_trans_handle *trans,
 			ptr = btrfs_item_ptr_offset(leaf, slot);
 			item_size = btrfs_item_size(leaf, slot);
 			memset_extent_buffer(leaf, 0, ptr, item_size);
-			btrfs_mark_buffer_dirty(leaf);
+			btrfs_mark_buffer_dirty(trans, leaf);
 		}
 next:
 		btrfs_release_path(path);
@@ -549,7 +549,7 @@ static int corrupt_block_group(struct btrfs_root *root, u64 bg, char *field)
 		ret = -EINVAL;
 		goto out;
 	}
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 out:
 	btrfs_commit_transaction(trans, root);
 	btrfs_free_path(path);
@@ -660,7 +660,7 @@ static int corrupt_dir_item(struct btrfs_root *root, struct btrfs_key *key,
 		read_extent_buffer(path->nodes[0], name, name_ptr, name_len);
 		name[0]++;
 		write_extent_buffer(path->nodes[0], name, name_ptr, name_len);
-		btrfs_mark_buffer_dirty(path->nodes[0]);
+		btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 		goto out;
 	case BTRFS_DIR_ITEM_LOCATION_OBJECTID:
 		btrfs_dir_item_key_to_cpu(path->nodes[0], di, &location);
@@ -668,7 +668,7 @@ static int corrupt_dir_item(struct btrfs_root *root, struct btrfs_key *key,
 		location.objectid = bogus;
 		btrfs_cpu_key_to_disk(&disk_key, &location);
 		btrfs_set_dir_item_key(path->nodes[0], di, &disk_key);
-		btrfs_mark_buffer_dirty(path->nodes[0]);
+		btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 		goto out;
 	default:
 		ret = -EINVAL;
@@ -776,7 +776,7 @@ static int corrupt_inode(struct btrfs_trans_handle *trans,
 		ret = -EINVAL;
 		break;
 	}
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 out:
 	btrfs_free_path(path);
 	return ret;
@@ -837,7 +837,7 @@ static int corrupt_file_extent(struct btrfs_trans_handle *trans,
 		ret = -EINVAL;
 		break;
 	}
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 out:
 	btrfs_free_path(path);
 	return ret;
@@ -954,7 +954,7 @@ static int corrupt_metadata_block(struct btrfs_fs_info *fs_info, u64 block,
 		}
 		eb = path->nodes[level];
 		shift_items(root, path->nodes[level]);
-		btrfs_mark_buffer_dirty(path->nodes[level]);
+		btrfs_mark_buffer_dirty(trans, path->nodes[level]);
 		btrfs_commit_transaction(trans, root);
 		break;
 		}
@@ -1011,7 +1011,7 @@ static int corrupt_btrfs_item(struct btrfs_root *root, struct btrfs_key *key,
 		ret = -EINVAL;
 		break;
 	}
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 out:
 	btrfs_commit_transaction(trans, root);
 	btrfs_free_path(path);
@@ -1060,7 +1060,7 @@ static int corrupt_btrfs_item_data(struct btrfs_root *root,
 	}
 	data += bogus_offset;
 	memset_extent_buffer(leaf, bogus_value, (unsigned long)data, bogus_size);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 
 commit_txn:
 	btrfs_commit_transaction(trans, root);
@@ -1096,7 +1096,7 @@ static int delete_item(struct btrfs_root *root, struct btrfs_key *key)
 		goto out;
 	}
 	ret = btrfs_del_item(trans, root, path);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 out:
 	btrfs_commit_transaction(trans, root);
 	btrfs_free_path(path);
@@ -1162,7 +1162,7 @@ static int corrupt_item_nocow(struct btrfs_trans_handle *trans,
 		ptr = btrfs_item_ptr_offset(leaf, slot);
 		item_size = btrfs_item_size(leaf, slot);
 		memset_extent_buffer(leaf, 0, ptr, item_size);
-		btrfs_mark_buffer_dirty(leaf);
+		btrfs_mark_buffer_dirty(trans, leaf);
 	}
 	return ret;
 }

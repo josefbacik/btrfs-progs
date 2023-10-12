@@ -1026,7 +1026,7 @@ int btrfs_insert_dev_extent(struct btrfs_trans_handle *trans,
 		    BTRFS_UUID_SIZE);
 
 	btrfs_set_dev_extent_length(leaf, extent, num_bytes);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 err:
 	btrfs_free_path(path);
 	return ret;
@@ -1180,7 +1180,7 @@ int btrfs_add_device(struct btrfs_trans_handle *trans,
 	ptr = (unsigned long)btrfs_device_fsid(dev_item);
 	write_extent_buffer(leaf, fs_info->fs_devices->metadata_uuid, ptr,
 			    BTRFS_UUID_SIZE);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 	fs_info->fs_devices->total_rw_bytes += device->total_bytes;
 	ret = 0;
 
@@ -1228,7 +1228,7 @@ int btrfs_update_device(struct btrfs_trans_handle *trans,
 	btrfs_set_device_sector_size(leaf, dev_item, device->sector_size);
 	btrfs_set_device_total_bytes(leaf, dev_item, device->total_bytes);
 	btrfs_set_device_bytes_used(leaf, dev_item, device->bytes_used);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 
 out:
 	btrfs_free_path(path);
@@ -3034,7 +3034,7 @@ static int reset_device_item_total_bytes(struct btrfs_fs_info *fs_info,
 	}
 	di = btrfs_item_ptr(path.nodes[0], path.slots[0], struct btrfs_dev_item);
 	btrfs_set_device_total_bytes(path.nodes[0], di, device->total_bytes);
-	btrfs_mark_buffer_dirty(path.nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path.nodes[0]);
 	ret = btrfs_commit_transaction(trans, chunk_root);
 	if (ret < 0) {
 		errno = -ret;

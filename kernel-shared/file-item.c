@@ -78,7 +78,7 @@ int btrfs_insert_file_extent(struct btrfs_trans_handle *trans,
 	btrfs_set_file_extent_compression(leaf, item, 0);
 	btrfs_set_file_extent_encryption(leaf, item, 0);
 	btrfs_set_file_extent_other_encoding(leaf, item, 0);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 out:
 	btrfs_free_path(path);
 	return ret;
@@ -124,7 +124,7 @@ int btrfs_insert_inline_extent(struct btrfs_trans_handle *trans,
 
 	ptr = btrfs_file_extent_inline_start(ei) + offset - key.offset;
 	write_extent_buffer(leaf, buffer, ptr, size);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 fail:
 	btrfs_free_path(path);
 	return err;
@@ -320,7 +320,7 @@ found:
 			sectorsize);
 	write_extent_buffer(leaf, csum_result, (unsigned long)item,
 			    csum_size);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 fail:
 	btrfs_free_path(path);
 	return ret;

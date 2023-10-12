@@ -489,7 +489,7 @@ static int traverse_directory(struct btrfs_trans_handle *trans,
 
 	root_dir_inode_size = calculate_dir_inode_size(dir_name);
 	btrfs_set_inode_size(leaf, inode_item, root_dir_inode_size);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 
 	btrfs_release_path(&path);
 
@@ -888,7 +888,7 @@ static int set_device_size(struct btrfs_fs_info *fs_info,
 	di = btrfs_item_ptr(path.nodes[0], path.slots[0],
 			    struct btrfs_dev_item);
 	btrfs_set_device_total_bytes(path.nodes[0], di, new_size);
-	btrfs_mark_buffer_dirty(path.nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path.nodes[0]);
 
 	/*
 	 * Update super->total_bytes, since it's only used for --rootdir,

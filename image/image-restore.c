@@ -1710,7 +1710,7 @@ again:
 		btrfs_set_device_total_bytes(leaf, dev_item, dev_size);
 		btrfs_set_device_bytes_used(leaf, dev_item,
 					    mdres->alloced_chunks);
-		btrfs_mark_buffer_dirty(leaf);
+		btrfs_mark_buffer_dirty(trans, leaf);
 		path.slots[0]++;
 	}
 

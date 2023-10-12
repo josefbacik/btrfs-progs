@@ -1678,7 +1678,7 @@ static int repair_qgroup_info(struct btrfs_fs_info *info,
 	btrfs_set_qgroup_info_excl_cmpr(path.nodes[0], info_item,
 					   count->info.exclusive_compressed);
 
-	btrfs_mark_buffer_dirty(path.nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path.nodes[0]);
 
 out:
 	btrfs_commit_transaction(trans, root);
@@ -1727,7 +1727,7 @@ static int repair_qgroup_status(struct btrfs_fs_info *info, bool silent)
 	btrfs_set_qgroup_status_version(path.nodes[0], status_item,
 					BTRFS_QGROUP_STATUS_VERSION);
 
-	btrfs_mark_buffer_dirty(path.nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path.nodes[0]);
 
 out:
 	btrfs_commit_transaction(trans, root);

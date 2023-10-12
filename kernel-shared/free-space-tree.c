@@ -170,7 +170,7 @@ static int add_new_free_space_info(struct btrfs_trans_handle *trans,
 	info = btrfs_item_ptr(leaf, path->slots[0], struct btrfs_free_space_info);
 	btrfs_set_free_space_extent_count(leaf, info, 0);
 	btrfs_set_free_space_flags(leaf, info, 0);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 
 	ret = 0;
 out:
@@ -309,7 +309,7 @@ static int convert_free_space_to_bitmaps(struct btrfs_trans_handle *trans,
 	flags |= BTRFS_FREE_SPACE_USING_BITMAPS;
 	btrfs_set_free_space_flags(leaf, info, flags);
 	expected_extent_count = btrfs_free_space_extent_count(leaf, info);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 	btrfs_release_path(path);
 
 	if (extent_count != expected_extent_count) {
@@ -347,7 +347,7 @@ static int convert_free_space_to_bitmaps(struct btrfs_trans_handle *trans,
 		ptr = btrfs_item_ptr_offset(leaf, path->slots[0]);
 		write_extent_buffer(leaf, bitmap_cursor, ptr,
 				    data_size);
-		btrfs_mark_buffer_dirty(leaf);
+		btrfs_mark_buffer_dirty(trans, leaf);
 		btrfs_release_path(path);
 
 		i += extent_size;
@@ -453,7 +453,7 @@ static int convert_free_space_to_extents(struct btrfs_trans_handle *trans,
 	flags &= ~BTRFS_FREE_SPACE_USING_BITMAPS;
 	btrfs_set_free_space_flags(leaf, info, flags);
 	expected_extent_count = btrfs_free_space_extent_count(leaf, info);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 	btrfs_release_path(path);
 
 	nrbits = div_u64(block_group->length, fs_info->sectorsize);
@@ -519,7 +519,7 @@ static int update_free_space_extent_count(struct btrfs_trans_handle *trans,
 
 	extent_count += new_extents;
 	btrfs_set_free_space_extent_count(path->nodes[0], info, extent_count);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 	btrfs_release_path(path);
 
 	if (!(flags & BTRFS_FREE_SPACE_USING_BITMAPS) &&
@@ -565,7 +565,7 @@ static void free_space_set_bits(struct btrfs_block_group *block_group,
 		extent_buffer_bitmap_set(leaf, ptr, first, last - first);
 	else
 		extent_buffer_bitmap_clear(leaf, ptr, first, last - first);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(NULL, leaf);
 
 	*size -= end - *start;
 	*start = end;

@@ -718,7 +718,7 @@ static noinline int insert_extent_data_ref(struct btrfs_trans_handle *trans,
 			btrfs_set_extent_data_ref_count(leaf, ref, num_refs);
 		}
 	}
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 	ret = 0;
 fail:
 	btrfs_release_path(path);
@@ -762,7 +762,7 @@ static noinline int remove_extent_data_ref(struct btrfs_trans_handle *trans,
 			btrfs_set_extent_data_ref_count(leaf, ref1, num_refs);
 		else if (key.type == BTRFS_SHARED_DATA_REF_KEY)
 			btrfs_set_shared_data_ref_count(leaf, ref2, num_refs);
-		btrfs_mark_buffer_dirty(leaf);
+		btrfs_mark_buffer_dirty(trans, leaf);
 	}
 	return ret;
 }
@@ -1097,7 +1097,7 @@ static int setup_inline_extent_backref(struct btrfs_root *root,
 	} else {
 		btrfs_set_extent_inline_ref_offset(leaf, iref, root_objectid);
 	}
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(NULL, leaf);
 	return 0;
 }
 
@@ -1185,7 +1185,7 @@ static int update_inline_extent_backref(struct btrfs_trans_handle *trans,
 		item_size -= size;
 		btrfs_truncate_item(path, item_size, 1);
 	}
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 	return 0;
 }
 
@@ -1287,7 +1287,7 @@ int btrfs_inc_extent_ref(struct btrfs_trans_handle *trans,
 	refs = btrfs_extent_refs(leaf, item);
 	btrfs_set_extent_refs(leaf, item, refs + 1);
 
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 	btrfs_release_path(path);
 
 	/* now insert the actual backref */
@@ -1594,7 +1594,7 @@ static int update_block_group_item(struct btrfs_trans_handle *trans,
 	btrfs_set_stack_block_group_chunk_objectid(&bgi,
 						   cache->global_root_id);
 	write_extent_buffer(leaf, &bgi, bi, sizeof(bgi));
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 fail:
 	btrfs_release_path(path);
 	return ret;
@@ -2097,7 +2097,7 @@ static int __free_extent(struct btrfs_trans_handle *trans,
 			BUG_ON(!found_extent);
 		} else {
 			btrfs_set_extent_refs(leaf, ei, refs);
-			btrfs_mark_buffer_dirty(leaf);
+			btrfs_mark_buffer_dirty(trans, leaf);
 		}
 		if (found_extent) {
 			ret = remove_extent_backref(trans, extent_root, path,
@@ -2468,7 +2468,7 @@ static int alloc_reserved_tree_block(struct btrfs_trans_handle *trans,
 	btrfs_set_extent_inline_ref_type(leaf, iref, BTRFS_TREE_BLOCK_REF_KEY);
 	btrfs_set_extent_inline_ref_offset(leaf, iref, ref->root);
 
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 	btrfs_free_path(path);
 
 	ret = remove_from_free_space_tree(trans, ins.objectid, fs_info->nodesize);

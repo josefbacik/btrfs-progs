@@ -219,7 +219,7 @@ int btrfs_add_link(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			nlink++;
 			btrfs_set_inode_nlink(path->nodes[0], inode_item,
 					      nlink);
-			btrfs_mark_buffer_dirty(path->nodes[0]);
+			btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 			btrfs_release_path(path);
 		}
 	}
@@ -245,7 +245,7 @@ int btrfs_add_link(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 	inode_size = btrfs_inode_size(path->nodes[0], inode_item);
 	inode_size += namelen * 2;
 	btrfs_set_inode_size(path->nodes[0], inode_item, inode_size);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 	btrfs_release_path(path);
 
 out:
@@ -355,7 +355,7 @@ int btrfs_unlink(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 		if (nlinks > 0)
 			nlinks--;
 		btrfs_set_inode_nlink(path->nodes[0], inode_item, nlinks);
-		btrfs_mark_buffer_dirty(path->nodes[0]);
+		btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 		btrfs_release_path(path);
 
 		/* For nlinks == 0, add it to orphan list if needed */
@@ -363,7 +363,7 @@ int btrfs_unlink(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 			ret = btrfs_add_orphan_item(trans, root, path, ino);
 			if (ret < 0)
 				goto out;
-			btrfs_mark_buffer_dirty(path->nodes[0]);
+			btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 			btrfs_release_path(path);
 		}
 
@@ -403,7 +403,7 @@ int btrfs_unlink(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 		if (inode_size >= namelen)
 			inode_size -= namelen;
 		btrfs_set_inode_size(path->nodes[0], inode_item, inode_size);
-		btrfs_mark_buffer_dirty(path->nodes[0]);
+		btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 		btrfs_release_path(path);
 	}
 
@@ -436,7 +436,7 @@ int btrfs_unlink(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 		if (inode_size >= namelen)
 			inode_size -= namelen;
 		btrfs_set_inode_size(path->nodes[0], inode_item, inode_size);
-		btrfs_mark_buffer_dirty(path->nodes[0]);
+		btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 		btrfs_release_path(path);
 	}
 
@@ -512,7 +512,7 @@ int btrfs_change_inode_flags(struct btrfs_trans_handle *trans,
 	item = btrfs_item_ptr(path->nodes[0], path->slots[0],
 			      struct btrfs_inode_item);
 	btrfs_set_inode_flags(path->nodes[0], item, flags);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 out:
 	btrfs_free_path(path);
 	return ret;
@@ -672,7 +672,7 @@ struct btrfs_root *btrfs_mksubvol(struct btrfs_root *root,
 
 	btrfs_set_inode_size(leaf, inode_item, len * 2 +
 			     btrfs_inode_size(leaf, inode_item));
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 	btrfs_release_path(&path);
 
 	/* add the backref first */

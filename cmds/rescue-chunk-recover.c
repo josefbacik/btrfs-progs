@@ -1164,7 +1164,7 @@ static int __rebuild_chunk_root(struct btrfs_trans_handle *trans,
 			BTRFS_UUID_SIZE);
 
 	root->node = cow;
-	btrfs_mark_buffer_dirty(cow);
+	btrfs_mark_buffer_dirty(trans, cow);
 
 	return ret;
 }

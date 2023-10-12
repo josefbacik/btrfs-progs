@@ -740,7 +740,7 @@ static int repair_tree_block_ref(struct btrfs_root *root,
 			btrfs_set_tree_block_level(eb, bi, level);
 			btrfs_set_tree_block_key(eb, bi, &copy_key);
 		}
-		btrfs_mark_buffer_dirty(eb);
+		btrfs_mark_buffer_dirty(trans, eb);
 		printf("Added an extent item [%llu %u]\n", bytenr, node_size);
 		btrfs_update_block_group(trans, bytenr, node_size, 1, 0);
 
@@ -1919,7 +1919,7 @@ static int repair_inline_ram_bytes(struct btrfs_root *root,
 			BTRFS_COMPRESS_NONE)
 		return -EINVAL;
 	btrfs_set_file_extent_ram_bytes(path->nodes[0], fi, on_disk_data_len);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 
 	ret = btrfs_commit_transaction(trans, root);
 	if (!ret) {
@@ -2301,7 +2301,7 @@ static int repair_inode_nbytes_lowmem(struct btrfs_root *root,
 	ii = btrfs_item_ptr(path->nodes[0], path->slots[0],
 			    struct btrfs_inode_item);
 	btrfs_set_inode_nbytes(path->nodes[0], ii, nbytes);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 fail:
 	btrfs_commit_transaction(trans, root);
 out:
@@ -2362,7 +2362,7 @@ static int repair_dir_isize_lowmem(struct btrfs_root *root,
 	ii = btrfs_item_ptr(path->nodes[0], path->slots[0],
 			    struct btrfs_inode_item);
 	btrfs_set_inode_size(path->nodes[0], ii, isize);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 fail:
 	btrfs_commit_transaction(trans, root);
 out:
@@ -2485,7 +2485,7 @@ static int repair_inode_nlinks_lowmem(struct btrfs_root *root,
 	ii = btrfs_item_ptr(path->nodes[0], path->slots[0],
 			    struct btrfs_inode_item);
 	btrfs_set_inode_nlink(path->nodes[0], ii, ref_count);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 
 	if (nlink)
 		*nlink = ref_count;
@@ -2562,7 +2562,7 @@ static int repair_inode_gen_lowmem(struct btrfs_root *root,
 			    struct btrfs_inode_item);
 	btrfs_set_inode_generation(path->nodes[0], ii, trans->transid);
 	btrfs_set_inode_transid(path->nodes[0], ii, trans->transid);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 	ret = btrfs_commit_transaction(trans, root);
 	if (ret < 0) {
 		errno = -ret;
@@ -3319,7 +3319,7 @@ static int repair_extent_data_item(struct btrfs_root *root,
 		btrfs_set_extent_generation(eb, ei, generation);
 		btrfs_set_extent_flags(eb, ei, BTRFS_EXTENT_FLAG_DATA);
 
-		btrfs_mark_buffer_dirty(eb);
+		btrfs_mark_buffer_dirty(trans, eb);
 		ret = btrfs_update_block_group(trans, disk_bytenr, num_bytes,
 					       1, 0);
 		btrfs_release_path(&path);

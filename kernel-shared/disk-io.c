@@ -2293,7 +2293,8 @@ skip_commit:
 	return err;
 }
 
-void btrfs_mark_buffer_dirty(struct extent_buffer *eb)
+void btrfs_mark_buffer_dirty(struct btrfs_trans_handle *trans,
+			     struct extent_buffer *eb)
 {
 	set_extent_buffer_dirty(eb);
 }
@@ -2383,7 +2384,7 @@ struct btrfs_root *btrfs_create_tree(struct btrfs_trans_handle *trans,
 	write_extent_buffer_fsid(leaf, fs_info->fs_devices->metadata_uuid);
 	write_extent_buffer_chunk_tree_uuid(leaf, fs_info->chunk_tree_uuid);
 
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 
 	extent_buffer_get(root->node);
 	root->commit_root = root->node;

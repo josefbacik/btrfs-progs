@@ -118,7 +118,7 @@ int btrfs_insert_xattr_item(struct btrfs_trans_handle *trans,
 
 	write_extent_buffer(leaf, name, name_ptr, name_len);
 	write_extent_buffer(leaf, data, data_ptr, data_len);
-	btrfs_mark_buffer_dirty(path->nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path->nodes[0]);
 
 	btrfs_free_path(path);
 	return ret;
@@ -176,7 +176,7 @@ int btrfs_insert_dir_item(struct btrfs_trans_handle *trans, struct btrfs_root
 	name_ptr = (unsigned long)(dir_item + 1);
 
 	write_extent_buffer(leaf, name, name_ptr, name_len);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 
 insert:
 	/* FIXME, use some real flag for selecting the extra index */
@@ -204,7 +204,7 @@ insert:
 	btrfs_set_dir_name_len(leaf, dir_item, name_len);
 	name_ptr = (unsigned long)(dir_item + 1);
 	write_extent_buffer(leaf, name, name_ptr, name_len);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 out:
 	btrfs_free_path(path);
 	if (ret)

@@ -51,7 +51,7 @@ void btrfs_fixup_low_keys(struct btrfs_path *path, struct btrfs_disk_key *key,
 		if (!path->nodes[i])
 			break;
 		btrfs_set_node_key(path->nodes[i], key, slot);
-		btrfs_mark_buffer_dirty(path->nodes[i]);
+		btrfs_mark_buffer_dirty(NULL, path->nodes[i]);
 		if (slot != 0)
 			break;
 	}
@@ -73,7 +73,7 @@ void btrfs_set_item_key_unsafe(struct btrfs_root *root, struct btrfs_path *path,
 
 	btrfs_cpu_key_to_disk(&disk_key, new_key);
 	btrfs_set_item_key(eb, &disk_key, slot);
-	btrfs_mark_buffer_dirty(eb);
+	btrfs_mark_buffer_dirty(NULL, eb);
 	if (slot == 0)
 		btrfs_fixup_low_keys(path, &disk_key, 1);
 }

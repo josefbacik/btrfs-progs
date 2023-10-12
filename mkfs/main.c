@@ -766,7 +766,7 @@ static int create_data_reloc_tree(struct btrfs_trans_handle *trans)
 	inode = btrfs_item_ptr(path.nodes[0], path.slots[0],
 			       struct btrfs_inode_item);
 	btrfs_set_inode_nlink(path.nodes[0], inode, 1);
-	btrfs_mark_buffer_dirty(path.nodes[0]);
+	btrfs_mark_buffer_dirty(trans, path.nodes[0]);
 	btrfs_release_path(&path);
 	return 0;
 out:
@@ -825,7 +825,7 @@ static int btrfs_uuid_tree_add(struct btrfs_trans_handle *trans, u8 *uuid,
 	ret = 0;
 	subvol_id_le = cpu_to_le64(subvol_id_cpu);
 	write_extent_buffer(eb, &subvol_id_le, offset, sizeof(subvol_id_le));
-	btrfs_mark_buffer_dirty(eb);
+	btrfs_mark_buffer_dirty(trans, eb);
 
 out:
 	btrfs_free_path(path);
@@ -970,7 +970,7 @@ static int touch_root_subvol(struct btrfs_fs_info *fs_info)
 	leaf = path.nodes[0];
 	slot = path.slots[0];
 	btrfs_item_key_to_cpu(leaf, &key, slot);
-	btrfs_mark_buffer_dirty(leaf);
+	btrfs_mark_buffer_dirty(trans, leaf);
 	ret = btrfs_commit_transaction(trans, fs_info->fs_root);
 	if (ret < 0) {
 		errno = -ret;
