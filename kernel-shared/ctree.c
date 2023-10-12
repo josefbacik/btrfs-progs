@@ -2519,6 +2519,32 @@ int btrfs_search_backwards(struct btrfs_root *root, struct btrfs_key *key,
 }
 
 /*
+ * Search for a valid slot for the given path.
+ *
+ * @root:	The root node of the tree.
+ * @key:	Will contain a valid item if found.
+ * @path:	The starting point to validate the slot.
+ *
+ * Return: 0  if the item is valid
+ *         1  if not found
+ *         <0 if error.
+ */
+int btrfs_get_next_valid_item(struct btrfs_root *root, struct btrfs_key *key,
+			      struct btrfs_path *path)
+{
+	if (path->slots[0] >= btrfs_header_nritems(path->nodes[0])) {
+		int ret;
+
+		ret = btrfs_next_leaf(root, path);
+		if (ret)
+			return ret;
+	}
+
+	btrfs_item_key_to_cpu(path->nodes[0], key, path->slots[0]);
+	return 0;
+}
+
+/*
  * adjust the pointers going up the tree, starting at level
  * making sure the right key of each node is points to 'key'.
  * This is used after shifting pointers to the left, so it stops

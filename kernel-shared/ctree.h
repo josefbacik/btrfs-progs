@@ -1116,6 +1116,9 @@ int btrfs_next_sibling_tree_block(struct btrfs_fs_info *fs_info,
 int btrfs_search_backwards(struct btrfs_root *root, struct btrfs_key *key,
 			   struct btrfs_path *path);
 
+int btrfs_get_next_valid_item(struct btrfs_root *root, struct btrfs_key *key,
+			      struct btrfs_path *path);
+
 /*
  * Walk up the tree as far as necessary to find the next leaf.
  *
