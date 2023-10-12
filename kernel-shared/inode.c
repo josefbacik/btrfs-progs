@@ -65,18 +65,13 @@ static int btrfs_find_free_dir_index(struct btrfs_root *root, u64 dir_ino,
 		goto out;
 	ret = 0;
 	if (path->slots[0] == 0) {
-		ret = btrfs_prev_leaf(root, path);
-		if (ret < 0)
-			goto out;
-		if (ret > 0) {
-			/*
-			 * This shouldn't happen since there must be a leaf
-			 * containing the DIR_ITEM.
-			 * Can only happen when the previous leaf is corrupted.
-			 */
-			ret = -EIO;
-			goto out;
-		}
+		/*
+		 * This shouldn't happen since there must be a leaf
+		 * containing the DIR_ITEM.
+		 * Can only happen when the previous leaf is corrupted.
+		 */
+		ret = -EIO;
+		goto out;
 	} else {
 		path->slots[0]--;
 	}
