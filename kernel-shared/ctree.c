@@ -3069,7 +3069,7 @@ static int leaf_space_used(const struct extent_buffer *l, int start, int nr)
 
 	if (!nr)
 		return 0;
-	data_len = btrfs_item_data_end(l, start);
+	data_len = btrfs_item_offset(l, start) + btrfs_item_size(l, start);
 	data_len = data_len - btrfs_item_offset(l, end);
 	data_len += sizeof(struct btrfs_item) * nr;
 	WARN_ON(data_len < 0);
@@ -3083,18 +3083,17 @@ static int leaf_space_used(const struct extent_buffer *l, int start, int nr)
  */
 int btrfs_leaf_free_space(const struct extent_buffer *leaf)
 {
+	struct btrfs_fs_info *fs_info = leaf->fs_info;
 	int nritems = btrfs_header_nritems(leaf);
-	u32 leaf_data_size;
 	int ret;
 
-	BUG_ON(!leaf->fs_info);
-	BUG_ON(leaf->fs_info->nodesize != leaf->len);
-	leaf_data_size = BTRFS_LEAF_DATA_SIZE(leaf->fs_info);
-	ret = leaf_data_size - leaf_space_used(leaf, 0 ,nritems);
+	ret = BTRFS_LEAF_DATA_SIZE(fs_info) - leaf_space_used(leaf, 0, nritems);
 	if (ret < 0) {
-		printk("leaf free space ret %d, leaf data size %u, used %d nritems %d\n",
-		       ret, leaf_data_size, leaf_space_used(leaf, 0, nritems),
-		       nritems);
+		btrfs_crit(fs_info,
+			   "leaf free space ret %d, leaf data size %lu, used %d nritems %d",
+			   ret,
+			   (unsigned long) BTRFS_LEAF_DATA_SIZE(fs_info),
+			   leaf_space_used(leaf, 0, nritems), nritems);
 	}
 	return ret;
 }
