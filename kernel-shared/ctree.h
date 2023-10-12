@@ -1113,6 +1113,9 @@ static inline int btrfs_insert_empty_item(struct btrfs_trans_handle *trans,
 int btrfs_next_sibling_tree_block(struct btrfs_fs_info *fs_info,
 				  struct btrfs_path *path);
 
+int btrfs_search_backwards(struct btrfs_root *root, struct btrfs_key *key,
+			   struct btrfs_path *path);
+
 /*
  * Walk up the tree as far as necessary to find the next leaf.
  *
