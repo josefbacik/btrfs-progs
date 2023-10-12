@@ -5785,17 +5785,9 @@ again:
 		btrfs_release_path(&path);
 		return ret;
 	} else if (ret) {
-		if (path.slots[0] > 0) {
+		if (path.slots[0] > 0)
 			path.slots[0]--;
-		} else {
-			ret = btrfs_prev_leaf(extent_root, &path);
-			if (ret < 0) {
-				goto out;
-			} else if (ret > 0) {
-				ret = 0;
-				goto out;
-			}
-		}
+		ret = 0;
 	}
 
 	btrfs_item_key_to_cpu(path.nodes[0], &key, path.slots[0]);
@@ -5809,17 +5801,10 @@ again:
 	 * EXTENT_ITEM_KEY please?
 	 */
 	while (key.type > BTRFS_EXTENT_ITEM_KEY) {
-		if (path.slots[0] > 0) {
+		if (path.slots[0] > 0)
 			path.slots[0]--;
-		} else {
-			ret = btrfs_prev_leaf(extent_root, &path);
-			if (ret < 0) {
-				goto out;
-			} else if (ret > 0) {
-				ret = 0;
-				goto out;
-			}
-		}
+		else
+			goto out;
 		btrfs_item_key_to_cpu(path.nodes[0], &key, path.slots[0]);
 	}
 

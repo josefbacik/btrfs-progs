@@ -1145,12 +1145,8 @@ begin:
 		 * The item was deleted, let the path point to the last checked
 		 * item.
 		 */
-		if (ret > 0) {
-			if (path->slots[0] == 0)
-				btrfs_prev_leaf(root, path);
-			else
-				path->slots[0]--;
-		}
+		if (ret > 0 && path->slots[0])
+			path->slots[0]--;
 		if (ret)
 			goto out;
 	}
@@ -1711,12 +1707,8 @@ begin:
 		btrfs_release_path(path);
 		ret = btrfs_search_slot(NULL, root, di_key, path, 0, 0);
 		/* the item was deleted, let path point the last checked item */
-		if (ret > 0) {
-			if (path->slots[0] == 0)
-				btrfs_prev_leaf(root, path);
-			else
-				path->slots[0]--;
-		}
+		if (ret > 0 && path->slots[0])
+			path->slots[0]--;
 		if (ret)
 			goto out;
 	}
