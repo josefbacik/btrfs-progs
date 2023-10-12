@@ -2567,6 +2567,7 @@ struct extent_buffer *btrfs_alloc_tree_block(struct btrfs_trans_handle *trans,
 					u64 parent, u64 root_objectid,
 					struct btrfs_disk_key *key, int level,
 					u64 hint, u64 empty_size,
+					u64 reloc_src_root,
 					enum btrfs_lock_nesting nest)
 {
 	struct btrfs_fs_info *fs_info = trans->fs_info;

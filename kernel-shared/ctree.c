@@ -293,7 +293,7 @@ int btrfs_copy_root(struct btrfs_trans_handle *trans,
 		btrfs_node_key(buf, &disk_key, 0);
 
 	cow = btrfs_alloc_tree_block(trans, new_root, 0, new_root_objectid,
-				     &disk_key, level, buf->start, 0,
+				     &disk_key, level, buf->start, 0, 0,
 				     BTRFS_NESTING_NORMAL);
 	if (IS_ERR(cow)) {
 		kfree(new_root);
@@ -355,7 +355,7 @@ int btrfs_create_root(struct btrfs_trans_handle *trans,
 	new_root->root_key.offset = 0;
 
 	node = btrfs_alloc_tree_block(trans, new_root, fs_info->nodesize,
-				      objectid, &disk_key, 0, 0, 0,
+				      objectid, &disk_key, 0, 0, 0, 0,
 				      BTRFS_NESTING_NORMAL);
 	if (IS_ERR(node)) {
 		ret = PTR_ERR(node);
@@ -592,7 +592,7 @@ static noinline int __btrfs_cow_block(struct btrfs_trans_handle *trans,
 
 	cow = btrfs_alloc_tree_block(trans, root, 0, root->root_key.objectid,
 				     &disk_key, level, search_start, empty_size,
-				     BTRFS_NESTING_NORMAL);
+				     0, BTRFS_NESTING_NORMAL);
 	if (IS_ERR(cow))
 		return PTR_ERR(cow);
 
@@ -1675,7 +1675,7 @@ static int noinline insert_new_root(struct btrfs_trans_handle *trans,
 		btrfs_node_key(lower, &lower_key, 0);
 
 	c = btrfs_alloc_tree_block(trans, root, 0, root->root_key.objectid,
-				   &lower_key, level, root->node->start, 0,
+				   &lower_key, level, root->node->start, 0, 0,
 				   BTRFS_NESTING_NORMAL);
 
 	if (IS_ERR(c))
@@ -1796,7 +1796,7 @@ static int split_node(struct btrfs_trans_handle *trans, struct btrfs_root
 	btrfs_node_key(c, &disk_key, mid);
 
 	split = btrfs_alloc_tree_block(trans, root, 0, root->root_key.objectid,
-				       &disk_key, level, c->start, 0,
+				       &disk_key, level, c->start, 0, 0,
 				       BTRFS_NESTING_NORMAL);
 	if (IS_ERR(split))
 		return PTR_ERR(split);
@@ -2359,7 +2359,7 @@ again:
 		btrfs_item_key(l, &disk_key, mid);
 
 	right = btrfs_alloc_tree_block(trans, root, 0, root->root_key.objectid,
-				       &disk_key, 0, l->start, 0,
+				       &disk_key, 0, l->start, 0, 0,
 				       BTRFS_NESTING_NORMAL);
 	if (IS_ERR(right)) {
 		BUG_ON(1);
