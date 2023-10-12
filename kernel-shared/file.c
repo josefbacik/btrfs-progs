@@ -120,20 +120,6 @@ check_next:
 		 *		offset + len
 		 */
 		not_found = 1;
-
-	/*
-	 * To keep the search behavior consistent with search_slot(),
-	 * we need to go back to the prev leaf's nritem slot if
-	 * we are at the first slot of the leaf.
-	 */
-	if (path->slots[0] == 0) {
-		ret = btrfs_prev_leaf(root, path);
-		/* Not possible */
-		if (ret)
-			goto out;
-		path->slots[0] = btrfs_header_nritems(path->nodes[0]);
-	}
-
 out:
 	if (ret == 0)
 		ret = not_found;
