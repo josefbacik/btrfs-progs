@@ -224,7 +224,6 @@ noinline void btrfs_release_path(struct btrfs_path *p)
 		free_extent_buffer(p->nodes[i]);
 		p->nodes[i] = NULL;
 	}
-	memset(p, 0, sizeof(*p));
 }
 
 /*
